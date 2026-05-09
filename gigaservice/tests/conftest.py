@@ -104,6 +104,9 @@ def mock_swarm(monkeypatch):
     monkeypatch.setattr("api.sensors.get_device_entry", _get_entry)
     monkeypatch.setattr("api.sensors.set_device_entry", _set_entry)
 
+    monkeypatch.setattr("api.stats.download_json", _download)
+    monkeypatch.setattr("api.stats.list_all_entries", AsyncMock(return_value=index))
+
     return {"store": store, "index": index}
 
 
@@ -135,6 +138,7 @@ def mock_blockchain(monkeypatch):
         return True  # grant all attestations by default; override per-test as needed
 
     monkeypatch.setattr("api.sensors.trigger_contract_refund", _noop_refund)
+    monkeypatch.setattr("api.sensors.send_html_alert", AsyncMock(return_value=None))
     monkeypatch.setattr("api.auth.reverse_resolve_ens", _noop_reverse_ens)
     monkeypatch.setattr("api.deps.verify_attestation", _allow_attestation)
 

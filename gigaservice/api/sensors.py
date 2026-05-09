@@ -11,7 +11,10 @@ from cryptography.exceptions import InvalidSignature
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
+import os
+
 from services.blockchain import trigger_contract_refund
+from services.notifications import send_html_alert
 from storage.swarm import upload_json, download_json, get_device_entry, set_device_entry
 
 logger = logging.getLogger(__name__)
@@ -90,6 +93,8 @@ class Readings(BaseModel):
     temp_c: float
     acceleration_x: float
     acceleration_y: float
+    lat: float | None = None
+    lon: float | None = None
 
 
 class DevicePayload(BaseModel):
@@ -108,6 +113,20 @@ class SensorResponse(BaseModel):
     device_id: str
     is_valid: bool
     timestamp: datetime
+
+
+# ---------------------------------------------------------------------------
+# Background violation handler
+# ---------------------------------------------------------------------------
+
+async def _handle_violation(device_id: str, reason: str) -> None:
+    """Trigger blockchain refund then send alert email. Called in BackgroundTasks."""
+    tx_hash = await trigger_contract_refund(device_id)
+    recipient = os.environ.get("ALERT_RECIPIENT_EMAIL", "")
+    if recipient:
+        contract_address = os.environ.get("CONTRACT_ADDRESS", "")
+        identifier = tx_hash if tx_hash else contract_address
+        await send_html_alert(device_id, reason, recipient, identifier)
 
 
 # ---------------------------------------------------------------------------
@@ -133,20 +152,29 @@ async def receive_sensor_data(data: SignedRequest, background_tasks: BackgroundT
 
     conditions = await _get_conditions(entry["conditions_hash"])
 
-    # 3. Rules engine
-    is_valid = True
+    # 3. Rules engine — collect violation reasons for telemetry + alerts
+    violation_reasons: list[str] = []
     if readings.temp_c > conditions["max_temp_c"]:
-        is_valid = False
+        violation_reasons.append(
+            f"temp {readings.temp_c:.1f}°C > {conditions['max_temp_c']}°C"
+        )
     if abs(readings.acceleration_x) > conditions["max_acceleration"]:
-        is_valid = False
+        violation_reasons.append(
+            f"accel_x {readings.acceleration_x:.2f} > {conditions['max_acceleration']}"
+        )
     if abs(readings.acceleration_y) > conditions["max_acceleration"]:
-        is_valid = False
+        violation_reasons.append(
+            f"accel_y {readings.acceleration_y:.2f} > {conditions['max_acceleration']}"
+        )
+    is_valid = not violation_reasons
+    reason = "; ".join(violation_reasons) if violation_reasons else ""
 
     # 4. Persist telemetry to Swarm (linked list via prev_hash)
     now = datetime.now(timezone.utc)
     record = {
         **payload.model_dump(),
         "is_valid": is_valid,
+        "reason": reason,
         "timestamp": now.isoformat(),
         "prev_hash": entry.get("latest_telemetry_hash"),
     }
@@ -163,9 +191,11 @@ async def receive_sensor_data(data: SignedRequest, background_tasks: BackgroundT
             detail="Index write failed after Swarm upload. Please retry.",
         ) from exc
 
-    # 6. If conditions were violated, trigger contract refund in the background
+    # 6. If conditions were violated, trigger refund + email alert in the background
     if not is_valid:
-        background_tasks.add_task(trigger_contract_refund, payload.device_id)
+        background_tasks.add_task(
+            _handle_violation, payload.device_id, reason
+        )
 
     print(
         f"Device: {payload.device_id} | Temp: {readings.temp_c} | "

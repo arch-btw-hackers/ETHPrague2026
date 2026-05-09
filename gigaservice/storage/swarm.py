@@ -129,3 +129,8 @@ async def delete_device_entry(device_id: str) -> None:
         index = await _raw_read()
         index.pop(device_id, None)
         await _raw_write(index)
+
+
+async def list_all_entries() -> dict[str, dict]:
+    """Return the full index as {device_id: entry_dict}."""
+    return await _read_index()
