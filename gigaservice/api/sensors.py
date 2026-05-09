@@ -311,7 +311,7 @@ async def receive_encrypted_sensor_data(
     # Step 4 — Delegate to standard pipeline via synthetic SignedRequest
     device_payload = DevicePayload(
         device_id=data.device_id,
-        nonce=int(data.nonce),
+        nonce=data.nonce,
         readings=Readings(
             temp_c=enc_readings.temp_c,
             acceleration_overload=enc_readings.acceleration_overload,
