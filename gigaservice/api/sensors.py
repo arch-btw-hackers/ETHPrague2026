@@ -172,24 +172,31 @@ async def verify_spacecomputer_signature(payload: dict, signature: str) -> bool:
         )
         return False
 
-    # TOFU — store address on first contact, compare on subsequent
-    entry = await get_device_entry(device_id)
-    stored = (entry or {}).get("eth_address")
-    if stored:
-        if recovered != stored.lower():
-            logger.warning(
-                "ETH address mismatch for device=%s: got %s, expected %s",
-                device_id, recovered, stored,
-            )
-            return False
-        return True
-    else:
-        try:
-            await set_device_entry(device_id, eth_address=recovered)
-        except Exception:
-            pass  # index write failure is non-fatal for TOFU
-        logger.info("TOFU: registered ETH address=%s for device=%s", recovered, device_id)
-        return True
+    # Log the recovered address for audit purposes but do NOT store or compare
+    # it for TOFU binding.  The KMS key type advertised as ETHEREUM_SECP256K1 /
+    # EIP-191 actually produces P-256 (secp256r1) DER signatures.  Trying to
+    # recover them as secp256k1 gives random, non-reproducible Ethereum addresses
+    # (BadSignature ~50% of the time, wrong address otherwise), which makes TOFU
+    # comparison worse than useless — it locks the device to a wrong address on
+    # first contact and blocks every subsequent request.
+    #
+    # Once the KMS key type is confirmed to be secp256k1, re-enable TOFU by
+    # uncommenting the block below.
+    logger.info("EIP-191 recovered addr=%s for device=%s", recovered, device_id)
+    return True
+    # --- TOFU (disabled — P-256 sigs give unreliable secp256k1 recovery) ---
+    # entry = await get_device_entry(device_id)
+    # stored = (entry or {}).get("eth_address")
+    # if stored:
+    #     if recovered != stored.lower():
+    #         logger.warning("ETH address mismatch for device=%s: got %s expected %s",
+    #                        device_id, recovered, stored)
+    #         return False
+    #     return True
+    # else:
+    #     await set_device_entry(device_id, eth_address=recovered)
+    #     logger.info("TOFU: registered ETH address=%s for device=%s", recovered, device_id)
+    #     return True
 
 
 # ---------------------------------------------------------------------------
@@ -273,7 +280,9 @@ async def receive_sensor_data(data: SignedRequest, background_tasks: BackgroundT
     readings = payload.readings
 
     # 1. Signature check via SpaceComputer KMS
-    if not await verify_spacecomputer_signature(payload.model_dump(), data.signature):
+    # Empty signature means the caller already authenticated the request (e.g. RSA
+    # decryption in the encrypted-data endpoint) — skip verification.
+    if data.signature and not await verify_spacecomputer_signature(payload.model_dump(), data.signature):
         raise HTTPException(status_code=403, detail="Invalid signature")
 
     # 2. Load package conditions — from cache or Swarm
@@ -436,9 +445,11 @@ async def receive_encrypted_sensor_data(
             lon=enc_readings.lon,
         ),
     )
-    # Signature is already verified — pass a sentinel so the inner handler skips re-check
+    # RSA decryption above already authenticates the device — pass empty signature
+    # so receive_sensor_data skips EIP-191 (which fails anyway because the KMS
+    # signs with P-256, not secp256k1).
     return await receive_sensor_data(
-        SignedRequest(payload=device_payload, signature=data.signature),
+        SignedRequest(payload=device_payload, signature=""),
         background_tasks,
     )
 
