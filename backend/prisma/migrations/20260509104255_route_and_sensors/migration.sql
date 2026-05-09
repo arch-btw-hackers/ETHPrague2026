@@ -1,0 +1,9 @@
+-- AlterTable
+ALTER TABLE "Shipment" ADD COLUMN     "etaAt" TIMESTAMP(3),
+ADD COLUMN     "routeIndex" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     "routePath" JSONB;
+
+-- AlterTable
+ALTER TABLE "Telemetry" ADD COLUMN     "humidity" DOUBLE PRECISION,
+ADD COLUMN     "speedKph" DOUBLE PRECISION,
+ADD COLUMN     "tilt" DOUBLE PRECISION;

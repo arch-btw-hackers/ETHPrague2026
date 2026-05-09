@@ -1,0 +1,140 @@
+// Prisma schema for VibeTrack.
+// PostgreSQL backs the Intelligence Hub: shipments, smart-contract conditions,
+// inbound telemetry samples, evaluation events, and prepared refund txs.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// High-level lifecycle of a shipment, as surfaced on the dashboard.
+enum ShipmentStatus {
+  IN_TRANSIT
+  COMPROMISED
+  DELIVERED
+}
+
+// Reason a single telemetry sample tripped the arbitrator.
+enum ViolationKind {
+  TEMPERATURE_HIGH
+  TEMPERATURE_LOW
+  SHOCK
+  GEOFENCE
+  OFFLINE
+}
+
+// Each Shipment is bound 1:1 to an on-chain escrow / smart contract.
+// Conditions stored here are mirrored from the contract at deploy time so the
+// off-chain Intelligence Hub can evaluate telemetry without an RPC round-trip.
+model Shipment {
+  id              String           @id @default(cuid())
+  trackingCode    String           @unique
+  asset           String           // Human-readable asset name (e.g. "Rolex Daytona #4421").
+  origin          String
+  destination     String
+  status          ShipmentStatus   @default(IN_TRANSIT)
+
+  // On-chain binding.
+  contractAddress String?
+  chainId         Int?
+  payerAddress    String?          // Buyer / receiver who gets refunded on bad state.
+  carrierAddress String?           // Carrier who is paid on delivery.
+
+  // Pre-set conditions mirrored from the smart contract.
+  maxTempC        Float            @default(8)     // Cold-chain ceiling.
+  minTempC        Float            @default(-20)
+  maxShockG       Float            @default(5)     // G-force ceiling.
+  geofence        Json?            // { lat, lng, radiusKm } — optional.
+
+  // Pre-computed road route (driving directions) as [[lng,lat], ...].
+  // Populated by the seed via OSRM. Drives the live simulator + map line.
+  routePath       Json?
+  routeIndex      Int              @default(0)     // Current head index along routePath.
+  etaAt           DateTime?
+
+  device          Device?
+  telemetries     Telemetry[]
+  events          Event[]
+  refundTx        RefundTx?
+
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@index([status])
+}
+
+// Hardware tracker bound to a shipment (SpaceComputer module, etc.).
+model Device {
+  id           String   @id @default(cuid())
+  serial       String   @unique
+  apiKey       String   @unique  // Validated on every telemetry POST.
+  shipmentId   String   @unique
+  shipment     Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  lastSeenAt   DateTime?
+  createdAt    DateTime @default(now())
+}
+
+// Raw HTTP POST sample from hardware. Append-only; powers the live charts.
+model Telemetry {
+  id         String   @id @default(cuid())
+  shipmentId String
+  shipment   Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  tempC      Float
+  shockG     Float
+  humidity   Float?
+  tilt       Float?
+  speedKph   Float?
+  lat        Float?
+  lng        Float?
+  battery    Float?
+
+  // Optional raw payload for forensic replay / Apify x402 attestation.
+  raw        Json?
+
+  recordedAt DateTime @default(now())
+
+  @@index([shipmentId, recordedAt])
+}
+
+// Status Timeline: every meaningful change is one Event row.
+// Renders directly into the dashboard timeline.
+model Event {
+  id         String        @id @default(cuid())
+  shipmentId String
+  shipment   Shipment      @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  kind       String        // "TELEMETRY_OK" | "VIOLATION" | "STATUS_CHANGE" | "REFUND_PREPARED" | "JUDGE_VERDICT"
+  violation  ViolationKind?
+  message    String
+  meta       Json?
+
+  createdAt  DateTime      @default(now())
+
+  @@index([shipmentId, createdAt])
+}
+
+// Prepared refund transaction. The hub does NOT broadcast on its own —
+// it stages a signed-ready tx call so a wallet/agent can submit it.
+model RefundTx {
+  id              String   @id @default(cuid())
+  shipmentId      String   @unique
+  shipment        Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  contractAddress String
+  chainId         Int
+  method          String   // e.g. "triggerRefund(bytes32)"
+  args            Json     // ABI-encoded args, ready for wallet.signTransaction.
+  reason          String
+
+  // "Supreme Judge" verdict (filled by judge.ts when an AI agent is wired).
+  judgeVerdict    String?  // "APPROVE" | "REJECT" | null
+  judgeNotes      String?
+
+  broadcastTxHash String?
+  createdAt       DateTime @default(now())
+}
