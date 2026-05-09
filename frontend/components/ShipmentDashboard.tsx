@@ -88,13 +88,23 @@ export default function ShipmentDashboard({
   const tele = data?.telemetries ?? [];
   const now = Date.now();
 
-  // Domain start = first telemetry (or shipment creation if no telemetry)
-  // Domain end   = ETA + a small tail so future is visible.
-  const domainStart = tele.length
+  // Domain: weight the bar so HISTORY dominates and the future is a smaller
+  // tail to the right of NOW (~65% past / ~35% future). Past span = how
+  // long the shipment has been observed (with a generous floor so a fresh
+  // shipment still has a usable scrub area). Future span = capped fraction
+  // of the past so NOW is always anchored well into the right half.
+  const firstT = tele.length
     ? new Date(tele[0].recordedAt).getTime()
     : now - 3_600_000;
   const etaT = data?.etaAt ? new Date(data.etaAt).getTime() : now + 3_600_000;
-  const domainEnd = Math.max(etaT, now + 60_000);
+  const MIN_PAST_MS = 24 * 3_600_000; // always show at least 24h of history
+  const pastSpan = Math.max(now - firstT, MIN_PAST_MS);
+  const futureSpan = Math.min(
+    Math.max(etaT - now, 30 * 60_000),
+    Math.round(pastSpan * 0.55),
+  );
+  const domainStart = now - pastSpan;
+  const domainEnd = now + futureSpan;
 
   const t = follow || scrubT == null ? now : scrubT;
   // Mode classification with a small dead-zone around "now" so live state
@@ -123,17 +133,37 @@ export default function ShipmentDashboard({
     return () => clearTimeout(id);
   }, [futureBucket]);
 
-  // Find telemetry sample at-or-before t (for map marker).
-  const scrubTele = useMemo(() => {
+  // Map marker position derived from scrub time.
+  //  • past   → walk back along the recorded telemetry by timestamp
+  //  • live   → latest real telemetry
+  //  • future → interpolate forward along the route from the current head
+  //             toward the destination, scaled by (t - now)/(eta - now)
+  const scrubTele = useMemo<Telemetry | undefined>(() => {
     if (!tele.length) return undefined;
-    if (mode === "future" || mode === "live") return tele[tele.length - 1];
-    let idx = 0;
-    for (let i = 0; i < tele.length; i++) {
-      if (new Date(tele[i].recordedAt).getTime() <= t) idx = i;
-      else break;
+    const head = tele[tele.length - 1];
+    if (mode === "live") return head;
+    if (mode === "past") {
+      let idx = 0;
+      for (let i = 0; i < tele.length; i++) {
+        if (new Date(tele[i].recordedAt).getTime() <= t) idx = i;
+        else break;
+      }
+      return tele[idx];
     }
-    return tele[idx];
-  }, [tele, t, mode]);
+    // future: project marker along the remaining route
+    const route = data?.routePath ?? [];
+    if (!route.length) return head;
+    const headIdx = Math.min(
+      Math.max(0, data?.routeIndex ?? 0),
+      route.length - 1,
+    );
+    const remaining = etaT - now;
+    const ratio =
+      remaining > 0 ? Math.min(1, Math.max(0, (t - now) / remaining)) : 1;
+    const targetIdx = Math.round(headIdx + (route.length - 1 - headIdx) * ratio);
+    const [lng, lat] = route[Math.min(route.length - 1, targetIdx)];
+    return { ...head, lat, lng, recordedAt: new Date(t).toISOString() };
+  }, [tele, t, mode, data?.routePath, data?.routeIndex, etaT, now]);
 
   // Hourly averages over historical telemetry — used to drive past readouts
   // so each scrub position has a stable, "we already have this data" value.
