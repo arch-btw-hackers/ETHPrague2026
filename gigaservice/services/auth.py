@@ -111,16 +111,20 @@ _rsa_private_key: rsa.RSAPrivateKey | None = None
 _rsa_public_key: rsa.RSAPublicKey | None = None
 
 
+_RSA_KEY_FILE = pathlib.Path("/tmp/gigaservice_rsa_key.pem")
+
+
 def _load_or_generate_rsa_keys() -> None:
-    """Load RSA keys from env vars or generate a fresh ephemeral pair.
+    """Load RSA keys from env vars, a persisted file, or generate a fresh pair.
 
-    Environment variables (PEM, \\n-escaped):
-      SERVER_RSA_PRIVATE_KEY — PKCS#8 private key (no passphrase)
-      SERVER_RSA_PUBLIC_KEY  — SubjectPublicKeyInfo public key
+    Priority:
+      1. SERVER_RSA_PRIVATE_KEY env var (production)
+      2. /tmp/gigaservice_rsa_key.pem (persisted across restarts within the same container)
+      3. Generate a new pair and save it to the file above
 
-    If neither is set a new 2048-bit pair is generated in-process.
-    The generated pair is ephemeral (lost on restart) — set the env vars
-    in production to keep a stable identity.
+    The generated pair is reused across process restarts as long as the
+    container (and its /tmp) is alive. Set SERVER_RSA_PRIVATE_KEY in
+    production to keep a stable identity across container recreations.
     """
     global _rsa_private_key, _rsa_public_key
 
@@ -131,16 +135,40 @@ def _load_or_generate_rsa_keys() -> None:
         _rsa_private_key = serialization.load_pem_private_key(priv_pem.encode(), password=None)
         _rsa_public_key = serialization.load_pem_public_key(pub_pem.encode())
         logger.info("RSA keys loaded from environment variables")
-    else:
-        logger.warning(
-            "SERVER_RSA_PRIVATE_KEY / SERVER_RSA_PUBLIC_KEY not set — "
-            "generating ephemeral RSA-2048 key pair (dev mode)"
+        return
+
+    if _RSA_KEY_FILE.exists():
+        try:
+            _rsa_private_key = serialization.load_pem_private_key(
+                _RSA_KEY_FILE.read_bytes(), password=None
+            )
+            _rsa_public_key = _rsa_private_key.public_key()
+            logger.info("RSA keys loaded from %s", _RSA_KEY_FILE)
+            return
+        except Exception:
+            logger.warning("Failed to load RSA key from %s — regenerating", _RSA_KEY_FILE)
+
+    logger.warning(
+        "SERVER_RSA_PRIVATE_KEY / SERVER_RSA_PUBLIC_KEY not set — "
+        "generating ephemeral RSA-2048 key pair (dev mode)"
+    )
+    _rsa_private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+    )
+    _rsa_public_key = _rsa_private_key.public_key()
+
+    try:
+        _RSA_KEY_FILE.write_bytes(
+            _rsa_private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.TraditionalOpenSSL,
+                encryption_algorithm=serialization.NoEncryption(),
+            )
         )
-        _rsa_private_key = rsa.generate_private_key(
-            public_exponent=65537,
-            key_size=2048,
-        )
-        _rsa_public_key = _rsa_private_key.public_key()
+        logger.info("RSA key pair persisted to %s", _RSA_KEY_FILE)
+    except Exception:
+        logger.warning("Could not persist RSA key to %s", _RSA_KEY_FILE)
 
 
 def get_server_public_key_pem() -> str:
