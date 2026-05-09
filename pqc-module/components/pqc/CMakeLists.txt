@@ -6,7 +6,8 @@ idf_component_register(
     INCLUDE_DIRS
         "include"
     REQUIRES
-        pqclean
+        mlkem
+        mldsa
         nvs_flash
         mbedtls
         esp_hw_support

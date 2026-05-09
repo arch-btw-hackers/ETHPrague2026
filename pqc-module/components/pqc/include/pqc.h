@@ -15,7 +15,7 @@ extern "C" {
 
 /* ── ML-DSA-44 (FIPS 204) ───────────────────────────────────────────────── */
 #define PQC_DSA_PK_BYTES  1312
-#define PQC_DSA_SK_BYTES  2528
+#define PQC_DSA_SK_BYTES  2560
 #define PQC_DSA_SIG_BYTES 2420
 
 /* ── AES-256-GCM ────────────────────────────────────────────────────────── */

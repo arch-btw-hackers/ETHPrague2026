@@ -15,33 +15,42 @@
 #include <cassert>
 
 /*
- * PQClean sources are compiled as C, so every symbol they export has C linkage.
- * Declaring them here in one extern "C" block is cleaner than scattering
- * inline extern declarations inside each function body.
+ * ML-KEM-512  — pq-code-package/mlkem-native  (MLK_CONFIG_PARAMETER_SET=512)
+ * ML-DSA-44   — pq-code-package/mldsa-native  (MLD_CONFIG_PARAMETER_SET=44)
+ *
+ * Both libraries are compiled as C — forward-declare their symbols here with
+ * C linkage.  Clangd will show a "definition not found" hint until the
+ * submodules are cloned (make submodule-mlkem / make submodule-mldsa), but
+ * this does not prevent compilation.
+ *
+ * ML-KEM encapsulation coin size (FIPS 203 §6.2): 32 bytes.
+ * ML-DSA-44 signature (FIPS 204): ctx/ctxlen added vs. Dilithium2; pass NULL, 0.
  */
 extern "C" {
-    /* ML-KEM-512 (Kyber512 clean) */
-    int PQCLEAN_KYBER512_CLEAN_crypto_kem_enc(
-        uint8_t *ct, uint8_t *ss, const uint8_t *pk);
+    int mlkem512_enc_derand(
+        uint8_t       *ct,
+        uint8_t       *ss,
+        const uint8_t *pk,
+        const uint8_t *coins);   /* 32 bytes of fresh randomness */
 
-    /* ML-DSA-44 (Dilithium2 clean) */
-    int PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_keypair(
-        uint8_t *pk, uint8_t *sk);
-    int PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_signature(
-        uint8_t *sig, size_t *siglen,
-        const uint8_t *m, size_t mlen,
+    int mldsa44_keypair(uint8_t *pk, uint8_t *sk);
+    int mldsa44_signature(
+        uint8_t       *sig, size_t *siglen,
+        const uint8_t *m,   size_t  mlen,
+        const uint8_t *ctx, size_t  ctxlen,  /* FIPS 204 context: pass NULL, 0 */
         const uint8_t *sk);
 }
 
 static const char *TAG = "pqc";
 
-static constexpr char NVS_NS[]            = "pqc";
-static constexpr char NVS_KEY_DSA_SK[]    = "dsa_sk";
-static constexpr char NVS_KEY_DSA_PK[]    = "dsa_pk";
-static constexpr char NVS_KEY_KEM_PK_BE[] = "kem_pk_be";
+static constexpr char    NVS_NS[]            = "pqc";
+static constexpr char    NVS_KEY_DSA_SK[]    = "dsa_sk";
+static constexpr char    NVS_KEY_DSA_PK[]    = "dsa_pk";
+static constexpr char    NVS_KEY_KEM_PK_BE[] = "kem_pk_be";
+static constexpr uint8_t HKDF_INFO[]         = "cold-chain-v1";
 
-/* Bump the version suffix whenever the crypto scheme changes. */
-static constexpr uint8_t HKDF_INFO[] = "cold-chain-v1";
+/* Size of the randomness passed to mlkem512_enc_derand (FIPS 203 §6.2) */
+static constexpr size_t MLKEM512_ENC_COINS = 32;
 
 /* ── Internal helpers ────────────────────────────────────────────────────── */
 
@@ -92,8 +101,11 @@ esp_err_t pqc_generate_keys(pqc_context_t *ctx)
 
     ESP_LOGI(TAG, "Generating ML-DSA-44 keypair...");
 
-    if (PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_keypair(
-            ctx->dsa_pk_device, ctx->dsa_sk_device) != 0) {
+    /*
+     * crypto_sign_keypair calls randombytes() internally for the 32-byte seed.
+     * Our ESP32 shim in components/mldsa/ wires that to esp_fill_random().
+     */
+    if (mldsa44_keypair(ctx->dsa_pk_device, ctx->dsa_sk_device) != 0) {
         ESP_LOGE(TAG, "ML-DSA keypair generation failed");
         return ESP_FAIL;
     }
@@ -145,21 +157,31 @@ esp_err_t pqc_load_keys(pqc_context_t *ctx)
     }
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "NVS read failed: %s", esp_err_to_name(err));
-        return err;
     }
-
-    ESP_LOGI(TAG, "Keys loaded from NVS");
-    return ESP_OK;
+    return err;
 }
 
 esp_err_t pqc_establish_session(pqc_context_t *ctx)
 {
     assert(ctx != nullptr);
 
+    /*
+     * Use the deterministic (_derand) encapsulation variant.
+     * We supply the 32-byte randomness directly from ESP32 hardware RNG
+     * rather than letting the library call an internal randombytes() shim.
+     * This makes the entropy source explicit and lets us zeroize the coins.
+     */
+    uint8_t coins        [MLKEM512_ENC_COINS];
     uint8_t shared_secret[PQC_KEM_SS_BYTES];
 
-    if (PQCLEAN_KYBER512_CLEAN_crypto_kem_enc(
-            ctx->kem_ct, shared_secret, ctx->kem_pk_backend) != 0) {
+    esp_fill_random(coins, sizeof(coins));
+
+    int rc = mlkem512_enc_derand(
+        ctx->kem_ct, shared_secret, ctx->kem_pk_backend, coins);
+
+    mbedtls_platform_zeroize(coins, sizeof(coins));
+
+    if (rc != 0) {
         ESP_LOGE(TAG, "ML-KEM encapsulation failed");
         mbedtls_platform_zeroize(shared_secret, sizeof(shared_secret));
         return ESP_FAIL;
@@ -228,10 +250,16 @@ esp_err_t pqc_sign_batch(
         return ESP_FAIL;
     }
 
+    /*
+     * crypto_sign_signature from pq-crystals/dilithium is deterministic
+     * (no randombytes() call during signing — nonce derived internally via SHAKE).
+     * Stack peak: ~7.5 KB — task stack must be ≥ 12 KB.
+     */
     ctx->sig_len = PQC_DSA_SIG_BYTES;
-    if (PQCLEAN_DILITHIUM2_CLEAN_crypto_sign_signature(
+    if (mldsa44_signature(
             ctx->signature, &ctx->sig_len,
             hash, sizeof(hash),
+            nullptr, 0,
             ctx->dsa_sk_device) != 0) {
         ESP_LOGE(TAG, "ML-DSA sign failed");
         mbedtls_platform_zeroize(hash, sizeof(hash));
