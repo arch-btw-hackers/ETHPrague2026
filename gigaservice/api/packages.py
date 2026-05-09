@@ -1,4 +1,7 @@
+import hashlib
 import os
+import time
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -33,13 +36,30 @@ class PackageResponse(BaseModel):
 
 
 class PackageContractInit(BaseModel):
-    """Payload for initialising a shipment in the smart contract (no-auth)."""
+    """Internal model passed to create_shipment_on_chain."""
     package_ref: str
     telemetry_proof: str
-    tracker_state: int   # Solidity enum value
-    status: int          # Solidity enum ShipmentStatus value
+    tracker_state: int
+    status: int
     receiver_confirmed: bool
-    created_at: int      # Unix timestamp
+    created_at: int
+
+
+class ShipmentInitRequest(BaseModel):
+    """What the caller sends to POST /initialize."""
+    temp_c: float
+    acceleration: float
+
+
+class ShipmentInitResponse(BaseModel):
+    """What the server returns after registering the shipment on-chain."""
+    package_ref: str
+    telemetry_proof: str
+    tracker_state: int
+    status: int
+    receiver_confirmed: bool
+    created_at: int
+    tx_hash: str
 
 
 @router.post("/", response_model=PackageResponse)
@@ -59,14 +79,39 @@ async def create_package(
     return PackageResponse(device_id=device_id, swarm_hash=swarm_hash)
 
 
-@router.post("/initialize")
-async def initialize_package_on_chain(data: PackageContractInit):
-    """Create a shipment in the smart contract. No authentication required (hackathon demo)."""
+@router.post("/initialize", response_model=ShipmentInitResponse)
+async def initialize_package_on_chain(req: ShipmentInitRequest):
+    """Register a new shipment on-chain derived from sensor readings. No auth required."""
+    created_at = int(time.time())
+    package_ref = str(uuid.uuid4())
+    telemetry_proof = hashlib.sha256(
+        f"{req.temp_c}:{req.acceleration}:{created_at}".encode()
+    ).hexdigest()
+    tracker_state = 0
+    status = 0
+    receiver_confirmed = False
+
+    data = PackageContractInit(
+        package_ref=package_ref,
+        telemetry_proof=telemetry_proof,
+        tracker_state=tracker_state,
+        status=status,
+        receiver_confirmed=receiver_confirmed,
+        created_at=created_at,
+    )
     try:
         tx_hash = await create_shipment_on_chain(data)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Blockchain error: {exc}")
-    return {"status": "ok", "tx_hash": tx_hash}
+    return ShipmentInitResponse(
+        package_ref=package_ref,
+        telemetry_proof=telemetry_proof,
+        tracker_state=tracker_state,
+        status=status,
+        receiver_confirmed=receiver_confirmed,
+        created_at=created_at,
+        tx_hash=tx_hash,
+    )
 
 
 @router.get("/{device_id}")
