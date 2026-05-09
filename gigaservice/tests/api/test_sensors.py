@@ -97,7 +97,7 @@ class TestConditionsViolations:
         req = {
             "payload": {
                 "device_id": cond["device_id"],
-                "nonce": 1,
+                "nonce": "1",
                 "readings": {"temp_c": temp_c, "acceleration_overload": acc_overload},
             },
             "signature": "sig",
@@ -140,13 +140,13 @@ class TestSensorDataValidation:
 
     def test_missing_signature_returns_422(self, client, mock_swarm):
         resp = client.post("/api/v1/sensors/data", json={
-            "payload": {"device_id": "x", "nonce": 1, "readings": {"temp_c": 20.0, "acceleration_overload": 0.0}}
+            "payload": {"device_id": "x", "nonce": "1", "readings": {"temp_c": 20.0, "acceleration_overload": 0.0}}
         })
         assert resp.status_code == 422
 
     def test_missing_readings_returns_422(self, client, mock_swarm):
         resp = client.post("/api/v1/sensors/data", json={
-            "payload": {"device_id": "x", "nonce": 1},
+            "payload": {"device_id": "x", "nonce": "1"},
             "signature": "sig",
         })
         assert resp.status_code == 422
@@ -154,7 +154,7 @@ class TestSensorDataValidation:
     def test_wrong_type_for_temp_returns_422(self, client, mock_swarm):
         resp = client.post("/api/v1/sensors/data", json={
             "payload": {
-                "device_id": "x", "nonce": 1,
+                "device_id": "x", "nonce": "1",
                 "readings": {"temp_c": "hot", "acceleration_overload": 0.0}
             },
             "signature": "sig",
@@ -184,8 +184,8 @@ class TestLinkedListChaining:
     def test_second_record_points_to_first(self, client, mock_swarm, delivery_conditions, signed_request):
         client.post("/api/v1/packages/", json=delivery_conditions)
 
-        resp1 = client.post("/api/v1/sensors/data", json={**signed_request, "payload": {**signed_request["payload"], "nonce": 1}})
-        resp2 = client.post("/api/v1/sensors/data", json={**signed_request, "payload": {**signed_request["payload"], "nonce": 2}})
+        resp1 = client.post("/api/v1/sensors/data", json={**signed_request, "payload": {**signed_request["payload"], "nonce": "1"}})
+        resp2 = client.post("/api/v1/sensors/data", json={**signed_request, "payload": {**signed_request["payload"], "nonce": "2"}})
 
         # Find the latest hash from index
         device_id = delivery_conditions["device_id"]
@@ -196,7 +196,7 @@ class TestLinkedListChaining:
     def test_history_traversal_returns_all_records(self, client, mock_swarm, delivery_conditions, signed_request):
         client.post("/api/v1/packages/", json=delivery_conditions)
         for nonce in range(1, 4):
-            client.post("/api/v1/sensors/data", json={**signed_request, "payload": {**signed_request["payload"], "nonce": nonce}})
+            client.post("/api/v1/sensors/data", json={**signed_request, "payload": {**signed_request["payload"], "nonce": str(nonce)}})
 
         body = client.get(f"/api/v1/packages/{delivery_conditions['device_id']}/history").json()
         assert body["count"] == 3
@@ -225,11 +225,11 @@ class TestGetLatest:
     def test_latest_record_matches_last_submitted(self, client, mock_swarm, delivery_conditions, signed_request):
         client.post("/api/v1/packages/", json=delivery_conditions)
         # Submit two readings — latest should have nonce=2
-        client.post("/api/v1/sensors/data", json={**signed_request, "payload": {**signed_request["payload"], "nonce": 1}})
-        client.post("/api/v1/sensors/data", json={**signed_request, "payload": {**signed_request["payload"], "nonce": 2}})
+        client.post("/api/v1/sensors/data", json={**signed_request, "payload": {**signed_request["payload"], "nonce": "1"}})
+        client.post("/api/v1/sensors/data", json={**signed_request, "payload": {**signed_request["payload"], "nonce": "2"}})
 
         body = client.get(f"/api/v1/sensors/latest/{delivery_conditions['device_id']}").json()
-        assert body["nonce"] == 2
+        assert body["nonce"] == "2"
 
     def test_latest_response_contains_is_valid(self, client, mock_swarm, delivery_conditions, signed_request):
         client.post("/api/v1/packages/", json=delivery_conditions)
@@ -262,7 +262,7 @@ class TestConditionsCache:
 
         resp = client.post("/api/v1/sensors/data", json={
             **signed_request,
-            "payload": {**signed_request["payload"], "nonce": 2},
+            "payload": {**signed_request["payload"], "nonce": "2"},
         })
         assert resp.status_code == 200
 
@@ -412,7 +412,7 @@ class TestVerifySpacecomputerSignature:
     async def test_valid_signature_returns_true(self, key_pair, pem_env):
         from api.sensors import verify_spacecomputer_signature
         private_key, _ = key_pair
-        payload = {"device_id": "dev-1", "nonce": 42, "readings": {"temp_c": 20.0, "acceleration_overload": 0.1}}
+        payload = {"device_id": "dev-1", "nonce": "42", "readings": {"temp_c": 20.0, "acceleration_overload": 0.1}}
         sig = self._make_signature(private_key, payload)
         assert await verify_spacecomputer_signature(payload, sig) is True
 
@@ -421,16 +421,16 @@ class TestVerifySpacecomputerSignature:
         from cryptography.hazmat.primitives.asymmetric import ec as ec_mod
         _, _ = key_pair
         other_key = ec_mod.generate_private_key(ec_mod.SECP256R1())
-        payload = {"device_id": "dev-1", "nonce": 1, "readings": {}}
+        payload = {"device_id": "dev-1", "nonce": "1", "readings": {}}
         sig = self._make_signature(other_key, payload)
         assert await verify_spacecomputer_signature(payload, sig) is False
 
     async def test_tampered_payload_returns_false(self, key_pair, pem_env):
         from api.sensors import verify_spacecomputer_signature
         private_key, _ = key_pair
-        original = {"device_id": "dev-1", "nonce": 1, "readings": {"temp_c": 20.0}}
+        original = {"device_id": "dev-1", "nonce": "1", "readings": {"temp_c": 20.0}}
         sig = self._make_signature(private_key, original)
-        tampered = {**original, "nonce": 99}
+        tampered = {**original, "nonce": "99"}
         assert await verify_spacecomputer_signature(tampered, sig) is False
 
     async def test_invalid_base64_returns_false(self, pem_env):

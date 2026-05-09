@@ -22,7 +22,7 @@ def _make_record(
 ) -> dict:
     return {
         "device_id": device_id,
-        "nonce": 1,
+        "nonce": "1",
         "readings": {
             "temp_c": 26.0 if not is_valid else 20.0,
             "acceleration_overload": 0.1,
@@ -187,7 +187,7 @@ class TestSensorDataWithGPS:
         payload = {
             "payload": {
                 "device_id": "gps-dev",
-                "nonce": 1,
+                "nonce": "1",
                 "readings": {
                     "temp_c": 20.0,
                     "acceleration_overload": 0.1,
@@ -313,7 +313,7 @@ class TestViolationTriggersAlert:
         payload = {
             "payload": {
                 "device_id": "vdev",
-                "nonce": 1,
+                "nonce": "1",
                 "readings": {
                     "temp_c": 30.0,
                     "acceleration_overload": 0.1,

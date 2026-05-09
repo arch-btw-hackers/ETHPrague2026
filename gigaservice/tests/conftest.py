@@ -167,7 +167,7 @@ def signed_request():
     return {
         "payload": {
             "device_id": "tracker-001",
-            "nonce": 1,
+            "nonce": "1",
             "readings": {
                 "temp_c": 20.0,
                 "acceleration_overload": 1.159,

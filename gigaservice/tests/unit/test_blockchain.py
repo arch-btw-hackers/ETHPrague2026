@@ -204,7 +204,7 @@ class TestHandleViolationCallsSubmitTrackerState:
         payload = {
             "payload": {
                 "device_id": "ship-1",
-                "nonce": 1,
+                "nonce": "1",
                 "readings": {
                     "temp_c": 35.0,  # violation
                     "acceleration_overload": 0.1,
@@ -238,7 +238,7 @@ class TestHandleViolationCallsSubmitTrackerState:
         payload = {
             "payload": {
                 "device_id": "ship-2",
-                "nonce": 1,
+                "nonce": "1",
                 "readings": {"temp_c": 40.0, "acceleration_overload": 0.1},
             },
             "signature": "sig",

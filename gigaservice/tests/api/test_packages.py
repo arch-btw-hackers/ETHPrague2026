@@ -136,7 +136,7 @@ class TestGetPackageHistory:
 
         # Submit 3 readings
         for nonce in range(1, 4):
-            payload = {**signed_request, "payload": {**signed_request["payload"], "nonce": nonce}}
+            payload = {**signed_request, "payload": {**signed_request["payload"], "nonce": str(nonce)}}
             client.post("/api/v1/sensors/data", json=payload)
 
         resp = client.get(f"/api/v1/packages/{delivery_conditions['device_id']}/history")
