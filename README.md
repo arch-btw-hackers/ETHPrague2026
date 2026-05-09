@@ -118,10 +118,39 @@ pip install -r requirements.txt -r requirements-dev.txt
 pytest -q
 ```
 
-All 270 tests run entirely with mocks — no Bee node or Sepolia RPC required.
+All 265 tests run entirely with mocks — no Bee node or Sepolia RPC required.
 
 ```
-270 passed in ~24s
+265 passed in ~25s
+```
+
+---
+
+## Deployment (GitHub Actions)
+
+On every push to `main` the CI pipeline runs all tests first, then deploys to your server via SSH if tests pass.
+
+### Required Repository Secrets
+
+Go to **Settings → Secrets and variables → Actions** and add:
+
+| Secret | Description |
+|---|---|
+| `SERVER_IP` | Public IP address of your production server |
+| `SERVER_USER` | SSH username (e.g. `ubuntu` or `root`) |
+| `SSH_PRIVATE_KEY` | Private key whose public counterpart is in `~/.ssh/authorized_keys` on the server |
+
+The deploy job SSHs into the server, runs `git pull origin main`, then `docker compose up -d --build`. No IP addresses or credentials are hardcoded in the repository.
+
+### Server prerequisites
+
+```bash
+# The project must be cloned to ~/ETHPrague2026 on the server
+git clone https://github.com/<your-org>/ETHPrague2026.git ~/ETHPrague2026
+
+# The .env file with production credentials lives on the server only
+cp ~/ETHPrague2026/gigaservice/.env.example ~/ETHPrague2026/gigaservice/.env
+# → fill in WEB3_PRIVATE_KEY, SMTP_PASSWORD, etc.
 ```
 
 ---
