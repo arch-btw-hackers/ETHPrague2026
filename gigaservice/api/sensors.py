@@ -260,7 +260,7 @@ class EncryptedPayload(BaseModel):
          (optionally prefixed with "vault:v1:").
     """
     device_id: str
-    nonce: int
+    nonce: str
     ciphertext: str   # Base64-encoded RSA-OAEP ciphertext of JSON readings
     signature: str    # ECDSA P-256 signature over str(nonce)+device_id+ciphertext
 

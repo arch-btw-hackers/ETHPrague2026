@@ -60,3 +60,4 @@ jobs:
             cd ~/ETHPrague2026
             git pull origin microservice
             docker compose up -d --build
+        # ... остальные настройки ...
