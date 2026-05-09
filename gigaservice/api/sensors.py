@@ -98,27 +98,44 @@ async def verify_spacecomputer_signature(payload: dict, signature: str) -> bool:
 
     def _add_from_bytes(raw: bytes) -> None:
         """Given raw bytes, add appropriate hex candidates."""
+        # secp256k1 group order — r and s must be strictly less than this
+        _SECP256K1_N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+
+        def _append_rs(r_int: int, s_int: int) -> None:
+            if r_int == 0 or s_int == 0:
+                return
+            if r_int >= _SECP256K1_N or s_int >= _SECP256K1_N:
+                logger.warning(
+                    "DER sig has r/s >= secp256k1 n — signature is NOT secp256k1; "
+                    "r_top=%08x s_top=%08x", r_int >> 224, s_int >> 224,
+                )
+                return
+            r_hex = r_int.to_bytes(32, "big").hex()
+            s_hex = s_int.to_bytes(32, "big").hex()
+            for v in (27, 28):
+                candidates.append("0x" + r_hex + s_hex + format(v, "02x"))
+
         if len(raw) == 65:
             candidates.append("0x" + raw.hex())
         elif len(raw) == 64:
-            # Compact r+s without v — try all recovery ids
-            for v in (0, 1, 27, 28):
-                candidates.append("0x" + raw.hex() + format(v, "02x"))
+            # Compact r+s without v — try both recovery ids
+            r_int = int.from_bytes(raw[:32], "big")
+            s_int = int.from_bytes(raw[32:], "big")
+            _append_rs(r_int, s_int)
         elif len(raw) >= 8 and raw[0] == 0x30:
             # DER-encoded ECDSA: 30 <len> 02 <r_len> <r> 02 <s_len> <s>
             try:
                 idx = 2
-                assert raw[idx] == 0x02
+                if raw[idx] != 0x02:
+                    return
                 r_len = raw[idx + 1]
                 r_int = int.from_bytes(raw[idx + 2: idx + 2 + r_len], "big")
                 idx += 2 + r_len
-                assert raw[idx] == 0x02
+                if idx >= len(raw) or raw[idx] != 0x02:
+                    return
                 s_len = raw[idx + 1]
                 s_int = int.from_bytes(raw[idx + 2: idx + 2 + s_len], "big")
-                r_hex = r_int.to_bytes(32, "big").hex()
-                s_hex = s_int.to_bytes(32, "big").hex()
-                for v in (27, 28, 0, 1):
-                    candidates.append("0x" + r_hex + s_hex + format(v, "02x"))
+                _append_rs(r_int, s_int)
             except Exception:
                 pass
 
@@ -136,17 +153,22 @@ async def verify_spacecomputer_signature(payload: dict, signature: str) -> bool:
             pass
 
     recovered: str | None = None
+    last_exc: Exception | None = None
     for candidate in candidates:
         try:
             recovered = Account.recover_message(message, signature=candidate).lower()
             break
-        except Exception:
+        except Exception as _exc:
+            last_exc = _exc
             continue
 
     if recovered is None:
         logger.warning(
-            "EIP-191 recovery failed for device=%s (tried %d candidate(s), sig_len=%d, sig_value=%r)",
+            "EIP-191 recovery failed for device=%s "
+            "(tried %d candidate(s), sig_len=%d, sig_value=%r, "
+            "signed_str=%r, last_exc=%s: %s)",
             device_id, len(candidates), len(sig), sig[:120],
+            signed_str, type(last_exc).__name__, last_exc,
         )
         return False
 
