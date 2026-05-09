@@ -12,6 +12,8 @@ import secrets
 import time
 
 import jwt
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 logger = logging.getLogger(__name__)
 
@@ -97,3 +99,82 @@ def create_jwt(address: str, role: str) -> str:
 def decode_jwt(token: str) -> dict:
     """Decode and validate a JWT. Raises jwt.PyJWTError on any failure."""
     return jwt.decode(token, _jwt_secret(), algorithms=[JWT_ALGORITHM])
+
+
+# ---------------------------------------------------------------------------
+# RSA-2048 server key pair — used for device payload encryption
+# ---------------------------------------------------------------------------
+
+_rsa_private_key: rsa.RSAPrivateKey | None = None
+_rsa_public_key: rsa.RSAPublicKey | None = None
+
+
+def _load_or_generate_rsa_keys() -> None:
+    """Load RSA keys from env vars or generate a fresh ephemeral pair.
+
+    Environment variables (PEM, \\n-escaped):
+      SERVER_RSA_PRIVATE_KEY — PKCS#8 private key (no passphrase)
+      SERVER_RSA_PUBLIC_KEY  — SubjectPublicKeyInfo public key
+
+    If neither is set a new 2048-bit pair is generated in-process.
+    The generated pair is ephemeral (lost on restart) — set the env vars
+    in production to keep a stable identity.
+    """
+    global _rsa_private_key, _rsa_public_key
+
+    priv_pem = os.environ.get("SERVER_RSA_PRIVATE_KEY", "").replace("\\n", "\n").strip()
+    pub_pem = os.environ.get("SERVER_RSA_PUBLIC_KEY", "").replace("\\n", "\n").strip()
+
+    if priv_pem and pub_pem:
+        _rsa_private_key = serialization.load_pem_private_key(priv_pem.encode(), password=None)
+        _rsa_public_key = serialization.load_pem_public_key(pub_pem.encode())
+        logger.info("RSA keys loaded from environment variables")
+    else:
+        logger.warning(
+            "SERVER_RSA_PRIVATE_KEY / SERVER_RSA_PUBLIC_KEY not set — "
+            "generating ephemeral RSA-2048 key pair (dev mode)"
+        )
+        _rsa_private_key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=2048,
+        )
+        _rsa_public_key = _rsa_private_key.public_key()
+
+
+def get_server_public_key_pem() -> str:
+    """Return the server RSA public key in PEM format."""
+    if _rsa_public_key is None:
+        _load_or_generate_rsa_keys()
+    return _rsa_public_key.public_bytes(  # type: ignore[union-attr]
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    ).decode()
+
+
+def decrypt_with_server_key(ciphertext_b64: str) -> bytes:
+    """Decrypt a Base64-encoded RSA-OAEP ciphertext using the server private key.
+
+    Raises ValueError if the key is unavailable or decryption fails.
+    """
+    if _rsa_private_key is None:
+        _load_or_generate_rsa_keys()
+    import base64
+    try:
+        ciphertext = base64.b64decode(ciphertext_b64)
+    except Exception as exc:
+        raise ValueError("ciphertext is not valid Base64") from exc
+    try:
+        return _rsa_private_key.decrypt(  # type: ignore[union-attr]
+            ciphertext,
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None,
+            ),
+        )
+    except Exception as exc:
+        raise ValueError("RSA decryption failed") from exc
+
+
+# Initialise keys at import time so the public key is ready before first request
+_load_or_generate_rsa_keys()

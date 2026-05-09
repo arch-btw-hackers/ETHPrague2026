@@ -15,6 +15,7 @@ import os
 
 from services.blockchain import trigger_contract_refund, submit_tracker_state
 from services.notifications import send_html_alert
+from services.auth import decrypt_with_server_key
 from storage.swarm import upload_json, download_json, get_device_entry, set_device_entry
 
 logger = logging.getLogger(__name__)
@@ -241,5 +242,49 @@ async def get_latest(device_id: str):
     if not entry or not entry.get("latest_telemetry_hash"):
         raise HTTPException(status_code=404, detail="No telemetry found")
     return await download_json(entry["latest_telemetry_hash"])
+
+
+# ---------------------------------------------------------------------------
+# Encrypted data endpoint
+# ---------------------------------------------------------------------------
+
+class EncryptedPayload(BaseModel):
+    """Payload sent by the device when using RSA-OAEP encryption.
+
+    The device:
+      1. Calls GET /auth/keys to obtain server_public_key (PEM).
+      2. Serialises its DevicePayload as JSON.
+      3. Encrypts that JSON with RSA-OAEP / SHA-256.
+      4. Base64-encodes the ciphertext → ciphertext field.
+      5. Signs the plaintext payload with its ECDSA key → signature field.
+    """
+    ciphertext: str   # Base64-encoded RSA-OAEP ciphertext of JSON(DevicePayload)
+    signature: str    # ECDSA P-256 signature of the plaintext DevicePayload (same as /data)
+
+
+@router.post("/encrypted-data", response_model=SensorResponse)
+async def receive_encrypted_sensor_data(
+    data: EncryptedPayload,
+    background_tasks: BackgroundTasks,
+):
+    """Accept an RSA-encrypted sensor payload, decrypt it, then run the standard pipeline."""
+    # 1. Decrypt
+    try:
+        plaintext = decrypt_with_server_key(data.ciphertext)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"Decryption failed: {exc}")
+
+    # 2. Parse the decrypted JSON into the standard request model
+    try:
+        inner = json.loads(plaintext)
+        device_payload = DevicePayload(**inner)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid decrypted payload: {exc}")
+
+    # 3. Delegate to the same logic as POST /data
+    return await receive_sensor_data(
+        SignedRequest(payload=device_payload, signature=data.signature),
+        background_tasks,
+    )
 
 

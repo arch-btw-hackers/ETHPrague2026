@@ -20,7 +20,7 @@ from eth_account.messages import encode_defunct
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from services.auth import consume_nonce, create_jwt, generate_nonce, get_role
+from services.auth import consume_nonce, create_jwt, generate_nonce, get_role, get_server_public_key_pem
 from services.blockchain import reverse_resolve_ens
 
 logger = logging.getLogger(__name__)
@@ -156,3 +156,13 @@ async def verify(data: VerifyRequest):
         logger.info("Authenticated address=%s role=%s", address, role)
 
     return AuthResponse(token=token, address=address, role=role)
+
+
+@router.get("/keys")
+async def get_public_keys():
+    """Return the server RSA public key in PEM format.
+
+    Devices call this once at startup to obtain the key they use to encrypt
+    their sensor payloads before sending to POST /sensors/encrypted-data.
+    """
+    return {"server_public_key": get_server_public_key_pem()}
