@@ -8,6 +8,7 @@ import { Router } from "express";
 import { prisma } from "../db";
 import { reviewRefund } from "../services/judge";
 import { getInsight } from "../services/insights";
+import { chatWithJudge, renderReport } from "../services/judgechat";
 
 export const shipmentsRouter = Router();
 
@@ -81,4 +82,38 @@ shipmentsRouter.get("/:code/insights", async (req, res) => {
   if (!shipment) return res.status(404).json({ error: "NOT_FOUND" });
   const insight = await getInsight(shipment.id, req.query.force === "1");
   res.json(insight);
+});
+
+// AI chat — operator asks the Supreme Judge a free-form question and gets
+// a forensic, telemetry-grounded reply.
+shipmentsRouter.post("/:code/chat", async (req, res) => {
+  const shipment = await prisma.shipment.findUnique({
+    where: { trackingCode: req.params.code },
+  });
+  if (!shipment) return res.status(404).json({ error: "NOT_FOUND" });
+  const question = String(req.body?.question ?? "").trim();
+  if (!question) return res.status(400).json({ error: "EMPTY" });
+  const history = Array.isArray(req.body?.history) ? req.body.history : [];
+  const result = await chatWithJudge(shipment.id, question.slice(0, 600), history);
+  res.json(result);
+});
+
+// Forensic PDF report — downloadable, branded, AI-summarised.
+shipmentsRouter.get("/:code/report.pdf", async (req, res) => {
+  const shipment = await prisma.shipment.findUnique({
+    where: { trackingCode: req.params.code },
+  });
+  if (!shipment) return res.status(404).json({ error: "NOT_FOUND" });
+  try {
+    const buf = await renderReport(shipment.id);
+    res.setHeader("content-type", "application/pdf");
+    res.setHeader(
+      "content-disposition",
+      `inline; filename="vibetrack-${shipment.trackingCode}.pdf"`
+    );
+    res.send(buf);
+  } catch (e) {
+    console.error("[report]", e);
+    res.status(500).json({ error: "REPORT_FAILED" });
+  }
 });

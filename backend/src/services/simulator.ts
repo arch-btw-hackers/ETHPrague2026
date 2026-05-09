@@ -23,7 +23,13 @@ async function tick() {
     const path = s.routePath as [number, number][] | null;
     if (!path || path.length < 2) continue;
 
-    const nextIndex = Math.min(path.length - 1, s.routeIndex + STEP_PER_TICK);
+    // Demo loop — once we reach the end, snap back to ~20% so the dashboard
+    // story never ends on a flat "DELIVERED" screen during a live judging.
+    const candidate = s.routeIndex + STEP_PER_TICK;
+    const nextIndex =
+      candidate >= path.length - 1
+        ? Math.floor(path.length * 0.2)
+        : candidate;
     const [lng, lat] = path[nextIndex];
     const last = s.telemetries[0];
 
@@ -59,24 +65,8 @@ async function tick() {
 
     await prisma.shipment.update({
       where: { id: s.id },
-      data: {
-        routeIndex: nextIndex,
-        // Auto-deliver when the head reaches the end of the route.
-        ...(nextIndex >= path.length - 1
-          ? { status: "DELIVERED" as const }
-          : {}),
-      },
+      data: { routeIndex: nextIndex },
     });
-
-    if (nextIndex >= path.length - 1) {
-      await prisma.event.create({
-        data: {
-          shipmentId: s.id,
-          kind: "STATUS_CHANGE",
-          message: "Shipment marked DELIVERED — destination reached.",
-        },
-      });
-    }
 
     await processTelemetry(s.id, telemetry.id);
   }
