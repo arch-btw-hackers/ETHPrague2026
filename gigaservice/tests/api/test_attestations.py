@@ -281,9 +281,9 @@ class TestHistoryAttestationGate:
         self, client, mock_swarm, delivery_conditions, signed_request
     ):
         """Default: attestation granted → history endpoint works normally."""
-        client.post("/packages/", json=delivery_conditions)
-        client.post("/sensors/data", json=signed_request)
-        resp = client.get(f"/packages/{delivery_conditions['device_id']}/history")
+        client.post("/api/v1/packages/", json=delivery_conditions)
+        client.post("/api/v1/sensors/data", json=signed_request)
+        resp = client.get(f"/api/v1/packages/{delivery_conditions['device_id']}/history")
         assert resp.status_code == 200
 
     def test_history_forbidden_without_attestation(
@@ -295,8 +295,8 @@ class TestHistoryAttestationGate:
 
         monkeypatch.setattr("api.deps.verify_attestation", _deny)
 
-        client.post("/packages/", json=delivery_conditions)
-        resp = client.get(f"/packages/{delivery_conditions['device_id']}/history")
+        client.post("/api/v1/packages/", json=delivery_conditions)
+        resp = client.get(f"/api/v1/packages/{delivery_conditions['device_id']}/history")
         assert resp.status_code == 403
         assert "attestation" in resp.json()["detail"].lower()
 
@@ -308,8 +308,8 @@ class TestHistoryAttestationGate:
 
         monkeypatch.setattr("api.deps.verify_attestation", _deny)
 
-        client.post("/packages/", json=delivery_conditions)
-        resp = client.get(f"/packages/{delivery_conditions['device_id']}/history")
+        client.post("/api/v1/packages/", json=delivery_conditions)
+        resp = client.get(f"/api/v1/packages/{delivery_conditions['device_id']}/history")
         assert resp.status_code == 403
         # Detail should name the schema so the client knows what's missing
         detail = resp.json()["detail"]
@@ -326,7 +326,7 @@ class TestHistoryAttestationGate:
         try:
             raw_client = TestClient(app)
             client_with_override = TestClient(app)  # still no override
-            resp = raw_client.get(f"/packages/{delivery_conditions['device_id']}/history")
+            resp = raw_client.get(f"/api/v1/packages/{delivery_conditions['device_id']}/history")
             assert resp.status_code == 403
         finally:
             app.dependency_overrides[get_current_user] = lambda: MOCK_PROVIDER_USER

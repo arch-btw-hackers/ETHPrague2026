@@ -93,20 +93,20 @@ class TestGetRole:
 
 class TestGetNonce:
     def test_returns_200(self, client):
-        resp = client.get("/auth/nonce")
+        resp = client.get("/api/v1/auth/nonce")
         assert resp.status_code == 200
 
     def test_response_has_nonce_field(self, client):
-        body = client.get("/auth/nonce").json()
+        body = client.get("/api/v1/auth/nonce").json()
         assert "nonce" in body
 
     def test_nonce_is_32_chars(self, client):
-        body = client.get("/auth/nonce").json()
+        body = client.get("/api/v1/auth/nonce").json()
         assert len(body["nonce"]) == 32
 
     def test_nonces_are_unique(self, client):
-        n1 = client.get("/auth/nonce").json()["nonce"]
-        n2 = client.get("/auth/nonce").json()["nonce"]
+        n1 = client.get("/api/v1/auth/nonce").json()["nonce"]
+        n2 = client.get("/api/v1/auth/nonce").json()["nonce"]
         assert n1 != n2
 
 
@@ -116,7 +116,7 @@ class TestGetNonce:
 
 class TestVerifyEndpoint:
     def test_invalid_siwe_message_returns_401(self, client):
-        resp = client.post("/auth/verify", json={
+        resp = client.post("/api/v1/auth/verify", json={
             "message": "not a valid siwe message",
             "signature": "0x" + "a" * 130,
         })
@@ -124,7 +124,7 @@ class TestVerifyEndpoint:
 
     def test_valid_flow_returns_token(self, client, monkeypatch):
         """Mock SIWE verification so we test the HTTP contract, not siwe internals."""
-        nonce = client.get("/auth/nonce").json()["nonce"]
+        nonce = client.get("/api/v1/auth/nonce").json()["nonce"]
 
         mock_msg = MagicMock()
         mock_msg.address = "0xDeAdBeEf000000000000000000000000DeAdBeEf"
@@ -132,7 +132,7 @@ class TestVerifyEndpoint:
         mock_msg.verify.return_value = None
         monkeypatch.setattr("api.auth.SiweMessage", lambda message: mock_msg)
 
-        resp = client.post("/auth/verify", json={
+        resp = client.post("/api/v1/auth/verify", json={
             "message": "fake siwe message",
             "signature": "0x" + "a" * 130,
         })
@@ -143,7 +143,7 @@ class TestVerifyEndpoint:
 
     def test_replayed_nonce_returns_401(self, client, monkeypatch):
         """Consuming the same nonce twice must be rejected."""
-        nonce = client.get("/auth/nonce").json()["nonce"]
+        nonce = client.get("/api/v1/auth/nonce").json()["nonce"]
         consume_nonce(nonce)  # pre-consume so it's gone
 
         mock_msg = MagicMock()
@@ -152,13 +152,13 @@ class TestVerifyEndpoint:
         mock_msg.verify.return_value = None
         monkeypatch.setattr("api.auth.SiweMessage", lambda message: mock_msg)
 
-        resp = client.post("/auth/verify", json={
+        resp = client.post("/api/v1/auth/verify", json={
             "message": "fake", "signature": "0x" + "a" * 130
         })
         assert resp.status_code == 401
 
     def test_role_returned_in_response(self, client, monkeypatch):
-        nonce = client.get("/auth/nonce").json()["nonce"]
+        nonce = client.get("/api/v1/auth/nonce").json()["nonce"]
         admin_addr = "0x0000000000000000000000000000000000000001"
 
         mock_msg = MagicMock()
@@ -167,7 +167,7 @@ class TestVerifyEndpoint:
         mock_msg.verify.return_value = None
         monkeypatch.setattr("api.auth.SiweMessage", lambda message: mock_msg)
 
-        body = client.post("/auth/verify", json={"message": "x", "signature": "0x"}).json()
+        body = client.post("/api/v1/auth/verify", json={"message": "x", "signature": "0x"}).json()
         assert body["role"] == "admin"
 
 
@@ -193,7 +193,7 @@ class TestRoleBasedAccess:
         return {"Authorization": f"Bearer {token}"}
 
     def test_no_token_returns_403_on_create_package(self, raw_client):
-        resp = raw_client.post("/packages/", json={
+        resp = raw_client.post("/api/v1/packages/", json={
             "device_id": "x", "max_temp_c": 25.0, "max_acceleration": 2.0
         })
         # HTTPBearer returns 403 when no credentials at all
@@ -202,7 +202,7 @@ class TestRoleBasedAccess:
     def test_user_role_forbidden_on_create_package(self, raw_client, monkeypatch):
         monkeypatch.setenv("JWT_SECRET", "test-secret")
         headers = self._bearer("0xuser", "user")
-        resp = raw_client.post("/packages/", json={
+        resp = raw_client.post("/api/v1/packages/", json={
             "device_id": "x", "max_temp_c": 25.0, "max_acceleration": 2.0
         }, headers=headers)
         assert resp.status_code == 403
@@ -210,7 +210,7 @@ class TestRoleBasedAccess:
     def test_provider_role_allowed_on_create_package(self, raw_client, mock_swarm, monkeypatch):
         monkeypatch.setenv("JWT_SECRET", "test-secret")
         headers = self._bearer("0xprovider", "provider")
-        resp = raw_client.post("/packages/", json={
+        resp = raw_client.post("/api/v1/packages/", json={
             "device_id": "auth-dev-1", "max_temp_c": 25.0, "max_acceleration": 2.0
         }, headers=headers)
         assert resp.status_code == 200
@@ -218,7 +218,7 @@ class TestRoleBasedAccess:
     def test_admin_role_allowed_on_create_package(self, raw_client, mock_swarm, monkeypatch):
         monkeypatch.setenv("JWT_SECRET", "test-secret")
         headers = self._bearer("0xadmin", "admin")
-        resp = raw_client.post("/packages/", json={
+        resp = raw_client.post("/api/v1/packages/", json={
             "device_id": "auth-dev-2", "max_temp_c": 25.0, "max_acceleration": 2.0
         }, headers=headers)
         assert resp.status_code == 200
@@ -229,14 +229,14 @@ class TestRoleBasedAccess:
         payload = {"sub": "0x1", "role": "provider", "exp": int(time.time()) - 1}
         token = pyjwt.encode(payload, "test-secret", algorithm="HS256")
         headers = {"Authorization": f"Bearer {token}"}
-        resp = raw_client.post("/packages/", json={
+        resp = raw_client.post("/api/v1/packages/", json={
             "device_id": "x", "max_temp_c": 25.0, "max_acceleration": 2.0
         }, headers=headers)
         assert resp.status_code == 401
 
     def test_garbage_token_returns_401(self, raw_client):
         headers = {"Authorization": "Bearer not.a.jwt"}
-        resp = raw_client.post("/packages/", json={
+        resp = raw_client.post("/api/v1/packages/", json={
             "device_id": "x", "max_temp_c": 25.0, "max_acceleration": 2.0
         }, headers=headers)
         assert resp.status_code == 401

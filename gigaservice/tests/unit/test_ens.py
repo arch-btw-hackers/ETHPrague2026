@@ -143,7 +143,7 @@ class TestEnsResolutionInPackagesEndpoint:
             AsyncMock(return_value=resolved_addr),
         )
 
-        resp = client.post("/packages/", json={
+        resp = client.post("/api/v1/packages/", json={
             "device_id": "tracker.eth",
             "max_temp_c": 20.0,
             "max_acceleration": 1.5,
@@ -161,7 +161,7 @@ class TestEnsResolutionInPackagesEndpoint:
             AsyncMock(side_effect=ValueError("ENS name 'bad.eth' has no registered address")),
         )
 
-        resp = client.post("/packages/", json={
+        resp = client.post("/api/v1/packages/", json={
             "device_id": "bad.eth",
             "max_temp_c": 20.0,
             "max_acceleration": 1.5,
@@ -171,7 +171,7 @@ class TestEnsResolutionInPackagesEndpoint:
 
     def test_regular_device_id_unaffected(self, client, mock_swarm):
         """Non-ENS identifiers go through resolve_ens unchanged — no mock needed."""
-        resp = client.post("/packages/", json={
+        resp = client.post("/api/v1/packages/", json={
             "device_id": "plain-tracker-99",
             "max_temp_c": 22.0,
             "max_acceleration": 3.0,

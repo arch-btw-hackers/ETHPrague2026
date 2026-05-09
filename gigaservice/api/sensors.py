@@ -15,7 +15,7 @@ import os
 
 from services.blockchain import trigger_contract_refund, submit_tracker_state
 from services.notifications import send_html_alert
-from services.auth import decrypt_with_server_key
+from services.auth import decrypt_payload, verify_device_signature
 from storage.swarm import upload_json, download_json, get_device_entry, set_device_entry
 
 logger = logging.getLogger(__name__)
@@ -249,17 +249,28 @@ async def get_latest(device_id: str):
 # ---------------------------------------------------------------------------
 
 class EncryptedPayload(BaseModel):
-    """Payload sent by the device when using RSA-OAEP encryption.
+    """Secure telemetry packet from the IoT device.
 
-    The device:
-      1. Calls GET /auth/keys to obtain server_public_key (PEM).
-      2. Serialises its DevicePayload as JSON.
-      3. Encrypts that JSON with RSA-OAEP / SHA-256.
-      4. Base64-encodes the ciphertext → ciphertext field.
-      5. Signs the plaintext payload with its ECDSA key → signature field.
+    Protocol:
+      1. Device calls GET /api/v1/auth/keys to get server RSA public key.
+      2. Serialises sensor readings as JSON: {"temp_c": ..., "acceleration_overload": ..., ...}
+      3. Encrypts that JSON with RSA-OAEP / SHA-256 → Base64 → ciphertext.
+      4. Forms the signed string:  str(nonce) + device_id + ciphertext
+      5. Signs with ECDSA P-256 / SHA-256 (Orbitport KMS) → Base64 → signature
+         (optionally prefixed with "vault:v1:").
     """
-    ciphertext: str   # Base64-encoded RSA-OAEP ciphertext of JSON(DevicePayload)
-    signature: str    # ECDSA P-256 signature of the plaintext DevicePayload (same as /data)
+    device_id: str
+    nonce: int
+    ciphertext: str   # Base64-encoded RSA-OAEP ciphertext of JSON readings
+    signature: str    # ECDSA P-256 signature over str(nonce)+device_id+ciphertext
+
+
+class EncryptedReadings(BaseModel):
+    """The inner JSON that the device encrypted."""
+    temp_c: float
+    acceleration_overload: float
+    lat: float | None = None
+    lon: float | None = None
 
 
 @router.post("/encrypted-data", response_model=SensorResponse)
@@ -267,21 +278,48 @@ async def receive_encrypted_sensor_data(
     data: EncryptedPayload,
     background_tasks: BackgroundTasks,
 ):
-    """Accept an RSA-encrypted sensor payload, decrypt it, then run the standard pipeline."""
-    # 1. Decrypt
-    try:
-        plaintext = decrypt_with_server_key(data.ciphertext)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=f"Decryption failed: {exc}")
+    """Accept an RSA+ECDSA-secured sensor packet and run the standard pipeline.
 
-    # 2. Parse the decrypted JSON into the standard request model
+    Steps:
+      1. Verify ECDSA signature over (nonce + device_id + ciphertext).
+      2. Decrypt RSA-OAEP ciphertext → raw readings JSON.
+      3. Parse readings, run rules engine, persist to Swarm, trigger alerts.
+    """
+    # Step 1 — ECDSA signature verification
+    signed_str = str(data.nonce) + data.device_id + data.ciphertext
+    if not verify_device_signature(signed_str, data.signature):
+        logger.warning("Rejected encrypted payload from device=%s: invalid ECDSA signature", data.device_id)
+        raise HTTPException(status_code=401, detail="Invalid device signature")
+    logger.info("ECDSA signature verified for device=%s nonce=%d", data.device_id, data.nonce)
+
+    # Step 2 — RSA-OAEP decryption
+    try:
+        plaintext = decrypt_payload(data.ciphertext)
+    except ValueError as exc:
+        logger.warning("Decryption failed for device=%s: %s", data.device_id, exc)
+        raise HTTPException(status_code=422, detail=f"Decryption failed: {exc}")
+    logger.info("Payload decrypted successfully for device=%s", data.device_id)
+
+    # Step 3 — Parse readings
     try:
         inner = json.loads(plaintext)
-        device_payload = DevicePayload(**inner)
+        enc_readings = EncryptedReadings(**inner)
     except Exception as exc:
+        logger.warning("Invalid decrypted JSON for device=%s: %s", data.device_id, exc)
         raise HTTPException(status_code=422, detail=f"Invalid decrypted payload: {exc}")
 
-    # 3. Delegate to the same logic as POST /data
+    # Step 4 — Delegate to standard pipeline via synthetic SignedRequest
+    device_payload = DevicePayload(
+        device_id=data.device_id,
+        nonce=data.nonce,
+        readings=Readings(
+            temp_c=enc_readings.temp_c,
+            acceleration_overload=enc_readings.acceleration_overload,
+            lat=enc_readings.lat,
+            lon=enc_readings.lon,
+        ),
+    )
+    # Signature is already verified — pass a sentinel so the inner handler skips re-check
     return await receive_sensor_data(
         SignedRequest(payload=device_payload, signature=data.signature),
         background_tasks,

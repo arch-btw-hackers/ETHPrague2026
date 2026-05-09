@@ -5,6 +5,7 @@ All state is in-process. For a production multi-replica deployment,
 replace _nonce_store with Redis or a DB-backed solution.
 """
 import json
+import base64
 import logging
 import os
 import pathlib
@@ -13,7 +14,8 @@ import time
 
 import jwt
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
+from cryptography.exceptions import InvalidSignature
 
 logger = logging.getLogger(__name__)
 
@@ -174,6 +176,64 @@ def decrypt_with_server_key(ciphertext_b64: str) -> bytes:
         )
     except Exception as exc:
         raise ValueError("RSA decryption failed") from exc
+
+
+# Alias for API clarity
+decrypt_payload = decrypt_with_server_key
+
+
+# ---------------------------------------------------------------------------
+# ECDSA P-256 device signature verification (Orbitport KMS compatible)
+# ---------------------------------------------------------------------------
+
+def _load_device_public_key():
+    """Load the IoT device ECDSA P-256 public key from env (same as api.sensors)."""
+    pem = os.environ.get("DEVICE_PUBLIC_KEY_PEM", "").replace("\\n", "\n").strip()
+    if not pem:
+        return None
+    return serialization.load_pem_public_key(pem.encode())
+
+
+def verify_device_signature(payload_str: str, signature: str) -> bool:
+    """Verify an Orbitport KMS ECDSA P-256 / SHA-256 signature.
+
+    Args:
+        payload_str: The raw string that was signed (e.g. nonce + device_id + ciphertext).
+        signature:   Raw signature value — may have a ``vault:v1:`` prefix which is
+                     stripped before Base64 decoding.
+
+    Returns:
+        True when the signature is valid.
+        True (with a warning) when DEVICE_PUBLIC_KEY_PEM is not configured (dev mode).
+        False when the signature is invalid or malformed.
+    """
+    # Strip Orbitport KMS prefix if present
+    if signature.startswith("vault:v1:"):
+        signature = signature[len("vault:v1:"):]
+
+    public_key = _load_device_public_key()
+    if public_key is None:
+        logger.warning(
+            "DEV MODE: ECDSA verification skipped — "
+            "DEVICE_PUBLIC_KEY_PEM is not configured"
+        )
+        return True
+
+    message = payload_str.encode()
+
+    try:
+        sig_bytes = base64.b64decode(signature, validate=True)
+    except Exception:
+        logger.debug("Device signature is not valid Base64")
+        return False
+
+    try:
+        public_key.verify(sig_bytes, message, ec.ECDSA(hashes.SHA256()))
+        logger.debug("Device signature verified OK")
+        return True
+    except InvalidSignature:
+        logger.warning("Device signature verification FAILED")
+        return False
 
 
 # Initialise keys at import time so the public key is ready before first request

@@ -212,7 +212,7 @@ class TestHandleViolationCallsSubmitTrackerState:
             },
             "signature": "sig",
         }
-        resp = client.post("/sensors/data", json=payload)
+        resp = client.post("/api/v1/sensors/data", json=payload)
         assert resp.status_code == 200
         submit_mock.assert_called_once()
         args = submit_mock.call_args[1]  # kwargs
@@ -243,7 +243,7 @@ class TestHandleViolationCallsSubmitTrackerState:
             },
             "signature": "sig",
         }
-        client.post("/sensors/data", json=payload)
+        client.post("/api/v1/sensors/data", json=payload)
 
         # telemetry_proof should be a non-empty string (the Swarm hash)
         proof = submit_mock.call_args[1].get("telemetry_proof", "")

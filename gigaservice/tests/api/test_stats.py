@@ -43,7 +43,7 @@ def _make_record(
 class TestHotspotsEmpty:
     def test_no_devices_returns_empty_list(self, client: TestClient, monkeypatch):
         monkeypatch.setattr("api.stats.list_all_entries", AsyncMock(return_value={}))
-        resp = client.get("/stats/hotspots")
+        resp = client.get("/api/v1/stats/hotspots")
         assert resp.status_code == 200
         assert resp.json() == {"hotspots": []}
 
@@ -52,7 +52,7 @@ class TestHotspotsEmpty:
             "api.stats.list_all_entries",
             AsyncMock(return_value={"tracker-001": {}}),
         )
-        resp = client.get("/stats/hotspots")
+        resp = client.get("/api/v1/stats/hotspots")
         assert resp.status_code == 200
         assert resp.json() == {"hotspots": []}
 
@@ -68,7 +68,7 @@ class TestHotspotsFiltering:
         monkeypatch.setattr(
             "api.stats.download_json", AsyncMock(side_effect=lambda h: store[h])
         )
-        resp = client.get("/stats/hotspots")
+        resp = client.get("/api/v1/stats/hotspots")
         assert resp.json() == {"hotspots": []}
 
     def test_invalid_without_gps_not_included(self, client: TestClient, monkeypatch):
@@ -82,7 +82,7 @@ class TestHotspotsFiltering:
         monkeypatch.setattr(
             "api.stats.download_json", AsyncMock(side_effect=lambda h: store[h])
         )
-        resp = client.get("/stats/hotspots")
+        resp = client.get("/api/v1/stats/hotspots")
         assert resp.json() == {"hotspots": []}
 
     def test_invalid_with_gps_included(self, client: TestClient, monkeypatch):
@@ -97,7 +97,7 @@ class TestHotspotsFiltering:
         monkeypatch.setattr(
             "api.stats.download_json", AsyncMock(side_effect=lambda h: store[h])
         )
-        resp = client.get("/stats/hotspots")
+        resp = client.get("/api/v1/stats/hotspots")
         data = resp.json()
         assert len(data["hotspots"]) == 1
         h = data["hotspots"][0]
@@ -123,7 +123,7 @@ class TestHotspotsFiltering:
         monkeypatch.setattr(
             "api.stats.download_json", AsyncMock(side_effect=lambda h: records[h])
         )
-        resp = client.get("/stats/hotspots")
+        resp = client.get("/api/v1/stats/hotspots")
         hotspots = resp.json()["hotspots"]
         device_ids = {h["device_id"] for h in hotspots}
         assert device_ids == {"t1", "t2"}
@@ -144,7 +144,7 @@ class TestHotspotsFiltering:
         monkeypatch.setattr(
             "api.stats.download_json", AsyncMock(side_effect=lambda h: store[h])
         )
-        resp = client.get("/stats/hotspots")
+        resp = client.get("/api/v1/stats/hotspots")
         hotspots = resp.json()["hotspots"]
         assert len(hotspots) == 1
         assert hotspots[0]["lat"] == 48.0
@@ -158,7 +158,7 @@ class TestHotspotsFiltering:
             "api.stats.download_json",
             AsyncMock(side_effect=Exception("Swarm unavailable")),
         )
-        resp = client.get("/stats/hotspots")
+        resp = client.get("/api/v1/stats/hotspots")
         assert resp.status_code == 200
         assert resp.json() == {"hotspots": []}
 
@@ -197,7 +197,7 @@ class TestSensorDataWithGPS:
             },
             "signature": "sig",
         }
-        resp = client.post("/sensors/data", json=payload)
+        resp = client.post("/api/v1/sensors/data", json=payload)
         assert resp.status_code == 200
         # Find the stored telemetry record
         stored = [
@@ -321,7 +321,7 @@ class TestViolationTriggersAlert:
             },
             "signature": "sig",
         }
-        resp = client.post("/sensors/data", json=payload)
+        resp = client.post("/api/v1/sensors/data", json=payload)
         assert resp.status_code == 200
         assert resp.json()["is_valid"] is False
         # send_html_alert is called in a background task; TestClient runs them synchronously
@@ -341,7 +341,7 @@ class TestAnalyzeRouteLow:
 
     def test_empty_waypoints_returns_low(self, client: TestClient, monkeypatch):
         monkeypatch.setattr("api.stats.list_all_entries", AsyncMock(return_value={}))
-        resp = client.post("/stats/analyze-route", json={"waypoints": []})
+        resp = client.post("/api/v1/stats/analyze-route", json={"waypoints": []})
         assert resp.status_code == 200
         body = resp.json()
         assert body["risk_level"] == "LOW"
@@ -350,7 +350,7 @@ class TestAnalyzeRouteLow:
     def test_no_hotspots_returns_low(self, client: TestClient, monkeypatch):
         monkeypatch.setattr("api.stats.list_all_entries", AsyncMock(return_value={}))
         payload = {"waypoints": [{"lat": 50.0, "lon": 14.0}]}
-        resp = client.post("/stats/analyze-route", json=payload)
+        resp = client.post("/api/v1/stats/analyze-route", json=payload)
         assert resp.status_code == 200
         assert resp.json()["risk_level"] == "LOW"
 
@@ -364,7 +364,7 @@ class TestAnalyzeRouteLow:
         monkeypatch.setattr("api.stats.download_json", AsyncMock(side_effect={"h1": record}.get))
         # ~55 km north
         payload = {"waypoints": [{"lat": 50.5, "lon": 14.0}]}
-        resp = client.post("/stats/analyze-route", json=payload)
+        resp = client.post("/api/v1/stats/analyze-route", json=payload)
         assert resp.json()["risk_level"] == "LOW"
         assert resp.json()["warnings"] == []
 
@@ -384,7 +384,7 @@ class TestAnalyzeRouteMedium:
         monkeypatch.setattr("api.stats.download_json", AsyncMock(side_effect={"h1": record}.get))
         # Waypoint ~1.1 km away (0.01° lat ≈ 1.11 km)
         payload = {"waypoints": [{"lat": 50.01, "lon": 14.0}]}
-        resp = client.post("/stats/analyze-route", json=payload)
+        resp = client.post("/api/v1/stats/analyze-route", json=payload)
         body = resp.json()
         assert body["risk_level"] == "MEDIUM"
         assert len(body["warnings"]) == 1
@@ -407,7 +407,7 @@ class TestAnalyzeRouteMedium:
                 {"lat": 49.99, "lon": 14.0},
             ]
         }
-        resp = client.post("/stats/analyze-route", json=payload)
+        resp = client.post("/api/v1/stats/analyze-route", json=payload)
         body = resp.json()
         assert body["risk_level"] == "MEDIUM"
         assert len(body["warnings"]) == 2
@@ -420,7 +420,7 @@ class TestAnalyzeRouteMedium:
         )
         monkeypatch.setattr("api.stats.download_json", AsyncMock(side_effect={"h1": record}.get))
         payload = {"waypoints": [{"lat": 51.505, "lon": 0.1}]}
-        resp = client.post("/stats/analyze-route", json=payload)
+        resp = client.post("/api/v1/stats/analyze-route", json=payload)
         warning = resp.json()["warnings"][0]
         assert "51.5" in warning
         assert "0.1" in warning
@@ -445,7 +445,7 @@ class TestAnalyzeRouteHigh:
                 {"lat": 50.5,  "lon": 14.0},    # ~55 km  — miss
             ]
         }
-        resp = client.post("/stats/analyze-route", json=payload)
+        resp = client.post("/api/v1/stats/analyze-route", json=payload)
         body = resp.json()
         assert body["risk_level"] == "HIGH"
         assert len(body["warnings"]) == 3
@@ -475,7 +475,7 @@ class TestAnalyzeRouteHigh:
                 {"lat": 52.005, "lon": 16.0},
             ]
         }
-        resp = client.post("/stats/analyze-route", json=payload)
+        resp = client.post("/api/v1/stats/analyze-route", json=payload)
         body = resp.json()
         assert body["risk_level"] == "HIGH"
         assert len(body["warnings"]) == 3
@@ -490,7 +490,7 @@ class TestAnalyzeRouteEdgeCases:
         )
         monkeypatch.setattr("api.stats.download_json", AsyncMock(side_effect={"h1": record}.get))
         payload = {"waypoints": [{"lat": 48.8566, "lon": 2.3522}]}
-        resp = client.post("/stats/analyze-route", json=payload)
+        resp = client.post("/api/v1/stats/analyze-route", json=payload)
         assert resp.json()["risk_level"] == "MEDIUM"
 
     def test_valid_records_dont_create_hotspots(self, client: TestClient, monkeypatch):
@@ -503,7 +503,7 @@ class TestAnalyzeRouteEdgeCases:
         monkeypatch.setattr("api.stats.download_json", AsyncMock(side_effect={"h1": record}.get))
         # Waypoint right on top of the non-hotspot
         payload = {"waypoints": [{"lat": 50.0, "lon": 14.0}]}
-        resp = client.post("/stats/analyze-route", json=payload)
+        resp = client.post("/api/v1/stats/analyze-route", json=payload)
         assert resp.json()["risk_level"] == "LOW"
         assert resp.json()["warnings"] == []
 
@@ -516,5 +516,5 @@ class TestAnalyzeRouteEdgeCases:
         )
         monkeypatch.setattr("api.stats.download_json", AsyncMock(side_effect={"h1": record}.get))
         payload = {"waypoints": [{"lat": 0.0, "lon": 0.0}]}
-        resp = client.post("/stats/analyze-route", json=payload)
+        resp = client.post("/api/v1/stats/analyze-route", json=payload)
         assert resp.json()["risk_level"] == "LOW"

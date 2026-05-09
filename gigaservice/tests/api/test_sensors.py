@@ -22,28 +22,28 @@ _real_verify_sig = _sensors_module.verify_spacecomputer_signature
 
 class TestReceiveSensorDataHappyPath:
     def test_returns_200(self, client, mock_swarm, delivery_conditions, signed_request):
-        client.post("/packages/", json=delivery_conditions)
-        resp = client.post("/sensors/data", json=signed_request)
+        client.post("/api/v1/packages/", json=delivery_conditions)
+        resp = client.post("/api/v1/sensors/data", json=signed_request)
         assert resp.status_code == 200
 
     def test_response_received_is_true(self, client, mock_swarm, delivery_conditions, signed_request):
-        client.post("/packages/", json=delivery_conditions)
-        body = client.post("/sensors/data", json=signed_request).json()
+        client.post("/api/v1/packages/", json=delivery_conditions)
+        body = client.post("/api/v1/sensors/data", json=signed_request).json()
         assert body["received"] is True
 
     def test_response_contains_device_id(self, client, mock_swarm, delivery_conditions, signed_request):
-        client.post("/packages/", json=delivery_conditions)
-        body = client.post("/sensors/data", json=signed_request).json()
+        client.post("/api/v1/packages/", json=delivery_conditions)
+        body = client.post("/api/v1/sensors/data", json=signed_request).json()
         assert body["device_id"] == delivery_conditions["device_id"]
 
     def test_is_valid_true_within_limits(self, client, mock_swarm, delivery_conditions, signed_request):
-        client.post("/packages/", json=delivery_conditions)
-        body = client.post("/sensors/data", json=signed_request).json()
+        client.post("/api/v1/packages/", json=delivery_conditions)
+        body = client.post("/api/v1/sensors/data", json=signed_request).json()
         assert body["is_valid"] is True
 
     def test_response_has_timestamp(self, client, mock_swarm, delivery_conditions, signed_request):
-        client.post("/packages/", json=delivery_conditions)
-        body = client.post("/sensors/data", json=signed_request).json()
+        client.post("/api/v1/packages/", json=delivery_conditions)
+        body = client.post("/api/v1/sensors/data", json=signed_request).json()
         assert "timestamp" in body
 
 
@@ -53,21 +53,21 @@ class TestReceiveSensorDataHappyPath:
 
 class TestSignatureRejection:
     def test_invalid_signature_returns_403(self, client, mock_swarm, delivery_conditions, signed_request):
-        client.post("/packages/", json=delivery_conditions)
+        client.post("/api/v1/packages/", json=delivery_conditions)
         with patch("api.sensors.verify_spacecomputer_signature", return_value=False):
-            resp = client.post("/sensors/data", json=signed_request)
+            resp = client.post("/api/v1/sensors/data", json=signed_request)
         assert resp.status_code == 403
 
     def test_invalid_signature_error_message(self, client, mock_swarm, delivery_conditions, signed_request):
-        client.post("/packages/", json=delivery_conditions)
+        client.post("/api/v1/packages/", json=delivery_conditions)
         with patch("api.sensors.verify_spacecomputer_signature", return_value=False):
-            body = client.post("/sensors/data", json=signed_request).json()
+            body = client.post("/api/v1/sensors/data", json=signed_request).json()
         assert "signature" in body["detail"].lower()
 
     def test_valid_signature_stub_passes(self, client, mock_swarm, delivery_conditions, signed_request):
         """Default stub always returns True — request should go through."""
-        client.post("/packages/", json=delivery_conditions)
-        resp = client.post("/sensors/data", json=signed_request)
+        client.post("/api/v1/packages/", json=delivery_conditions)
+        resp = client.post("/api/v1/sensors/data", json=signed_request)
         assert resp.status_code == 200
 
 
@@ -78,11 +78,11 @@ class TestSignatureRejection:
 class TestNoPackageRegistered:
     def test_returns_404_when_no_package(self, client, mock_swarm, signed_request):
         # No POST /packages/ first
-        resp = client.post("/sensors/data", json=signed_request)
+        resp = client.post("/api/v1/sensors/data", json=signed_request)
         assert resp.status_code == 404
 
     def test_404_detail_mentions_device(self, client, mock_swarm, signed_request):
-        body = client.post("/sensors/data", json=signed_request).json()
+        body = client.post("/api/v1/sensors/data", json=signed_request).json()
         assert signed_request["payload"]["device_id"] in body["detail"]
 
 
@@ -93,7 +93,7 @@ class TestNoPackageRegistered:
 class TestConditionsViolations:
     def _post_reading(self, client, mock_swarm, temp_c, acc_overload, conditions=None):
         cond = conditions or {"device_id": "tracker-001", "max_temp_c": 25.0, "max_acceleration": 2.0}
-        client.post("/packages/", json=cond)
+        client.post("/api/v1/packages/", json=cond)
         req = {
             "payload": {
                 "device_id": cond["device_id"],
@@ -102,7 +102,7 @@ class TestConditionsViolations:
             },
             "signature": "sig",
         }
-        return client.post("/sensors/data", json=req).json()
+        return client.post("/api/v1/sensors/data", json=req).json()
 
     def test_temp_exceeded_is_invalid(self, client, mock_swarm):
         body = self._post_reading(client, mock_swarm, temp_c=30.0, acc_overload=0.0)
@@ -135,24 +135,24 @@ class TestConditionsViolations:
 
 class TestSensorDataValidation:
     def test_missing_payload_returns_422(self, client, mock_swarm):
-        resp = client.post("/sensors/data", json={"signature": "sig"})
+        resp = client.post("/api/v1/sensors/data", json={"signature": "sig"})
         assert resp.status_code == 422
 
     def test_missing_signature_returns_422(self, client, mock_swarm):
-        resp = client.post("/sensors/data", json={
+        resp = client.post("/api/v1/sensors/data", json={
             "payload": {"device_id": "x", "nonce": 1, "readings": {"temp_c": 20.0, "acceleration_overload": 0.0}}
         })
         assert resp.status_code == 422
 
     def test_missing_readings_returns_422(self, client, mock_swarm):
-        resp = client.post("/sensors/data", json={
+        resp = client.post("/api/v1/sensors/data", json={
             "payload": {"device_id": "x", "nonce": 1},
             "signature": "sig",
         })
         assert resp.status_code == 422
 
     def test_wrong_type_for_temp_returns_422(self, client, mock_swarm):
-        resp = client.post("/sensors/data", json={
+        resp = client.post("/api/v1/sensors/data", json={
             "payload": {
                 "device_id": "x", "nonce": 1,
                 "readings": {"temp_c": "hot", "acceleration_overload": 0.0}
@@ -162,7 +162,7 @@ class TestSensorDataValidation:
         assert resp.status_code == 422
 
     def test_empty_body_returns_422(self, client, mock_swarm):
-        resp = client.post("/sensors/data", json={})
+        resp = client.post("/api/v1/sensors/data", json={})
         assert resp.status_code == 422
 
 
@@ -172,8 +172,8 @@ class TestSensorDataValidation:
 
 class TestLinkedListChaining:
     def test_first_record_has_no_prev_hash(self, client, mock_swarm, delivery_conditions, signed_request):
-        client.post("/packages/", json=delivery_conditions)
-        client.post("/sensors/data", json=signed_request)
+        client.post("/api/v1/packages/", json=delivery_conditions)
+        client.post("/api/v1/sensors/data", json=signed_request)
 
         # Only one record in store; first entry should have prev_hash=None
         records = list(mock_swarm["store"].values())
@@ -182,10 +182,10 @@ class TestLinkedListChaining:
         assert telemetry[0]["prev_hash"] is None
 
     def test_second_record_points_to_first(self, client, mock_swarm, delivery_conditions, signed_request):
-        client.post("/packages/", json=delivery_conditions)
+        client.post("/api/v1/packages/", json=delivery_conditions)
 
-        resp1 = client.post("/sensors/data", json={**signed_request, "payload": {**signed_request["payload"], "nonce": 1}})
-        resp2 = client.post("/sensors/data", json={**signed_request, "payload": {**signed_request["payload"], "nonce": 2}})
+        resp1 = client.post("/api/v1/sensors/data", json={**signed_request, "payload": {**signed_request["payload"], "nonce": 1}})
+        resp2 = client.post("/api/v1/sensors/data", json={**signed_request, "payload": {**signed_request["payload"], "nonce": 2}})
 
         # Find the latest hash from index
         device_id = delivery_conditions["device_id"]
@@ -194,11 +194,11 @@ class TestLinkedListChaining:
         assert latest_record["prev_hash"] is not None
 
     def test_history_traversal_returns_all_records(self, client, mock_swarm, delivery_conditions, signed_request):
-        client.post("/packages/", json=delivery_conditions)
+        client.post("/api/v1/packages/", json=delivery_conditions)
         for nonce in range(1, 4):
-            client.post("/sensors/data", json={**signed_request, "payload": {**signed_request["payload"], "nonce": nonce}})
+            client.post("/api/v1/sensors/data", json={**signed_request, "payload": {**signed_request["payload"], "nonce": nonce}})
 
-        body = client.get(f"/packages/{delivery_conditions['device_id']}/history").json()
+        body = client.get(f"/api/v1/packages/{delivery_conditions['device_id']}/history").json()
         assert body["count"] == 3
 
 
@@ -208,33 +208,33 @@ class TestLinkedListChaining:
 
 class TestGetLatest:
     def test_returns_200_after_data_submitted(self, client, mock_swarm, delivery_conditions, signed_request):
-        client.post("/packages/", json=delivery_conditions)
-        client.post("/sensors/data", json=signed_request)
-        resp = client.get(f"/sensors/latest/{delivery_conditions['device_id']}")
+        client.post("/api/v1/packages/", json=delivery_conditions)
+        client.post("/api/v1/sensors/data", json=signed_request)
+        resp = client.get(f"/api/v1/sensors/latest/{delivery_conditions['device_id']}")
         assert resp.status_code == 200
 
     def test_returns_404_when_no_telemetry(self, client, mock_swarm, delivery_conditions):
-        client.post("/packages/", json=delivery_conditions)
-        resp = client.get(f"/sensors/latest/{delivery_conditions['device_id']}")
+        client.post("/api/v1/packages/", json=delivery_conditions)
+        resp = client.get(f"/api/v1/sensors/latest/{delivery_conditions['device_id']}")
         assert resp.status_code == 404
 
     def test_returns_404_for_unknown_device(self, client, mock_swarm):
-        resp = client.get("/sensors/latest/unknown-device")
+        resp = client.get("/api/v1/sensors/latest/unknown-device")
         assert resp.status_code == 404
 
     def test_latest_record_matches_last_submitted(self, client, mock_swarm, delivery_conditions, signed_request):
-        client.post("/packages/", json=delivery_conditions)
+        client.post("/api/v1/packages/", json=delivery_conditions)
         # Submit two readings — latest should have nonce=2
-        client.post("/sensors/data", json={**signed_request, "payload": {**signed_request["payload"], "nonce": 1}})
-        client.post("/sensors/data", json={**signed_request, "payload": {**signed_request["payload"], "nonce": 2}})
+        client.post("/api/v1/sensors/data", json={**signed_request, "payload": {**signed_request["payload"], "nonce": 1}})
+        client.post("/api/v1/sensors/data", json={**signed_request, "payload": {**signed_request["payload"], "nonce": 2}})
 
-        body = client.get(f"/sensors/latest/{delivery_conditions['device_id']}").json()
+        body = client.get(f"/api/v1/sensors/latest/{delivery_conditions['device_id']}").json()
         assert body["nonce"] == 2
 
     def test_latest_response_contains_is_valid(self, client, mock_swarm, delivery_conditions, signed_request):
-        client.post("/packages/", json=delivery_conditions)
-        client.post("/sensors/data", json=signed_request)
-        body = client.get(f"/sensors/latest/{delivery_conditions['device_id']}").json()
+        client.post("/api/v1/packages/", json=delivery_conditions)
+        client.post("/api/v1/sensors/data", json=signed_request)
+        body = client.get(f"/api/v1/sensors/latest/{delivery_conditions['device_id']}").json()
         assert "is_valid" in body
 
 
@@ -245,14 +245,14 @@ class TestGetLatest:
 class TestConditionsCache:
     def test_cache_populated_after_first_request(self, client, mock_swarm, delivery_conditions, signed_request):
         import api.sensors as sensors_mod
-        client.post("/packages/", json=delivery_conditions)
-        client.post("/sensors/data", json=signed_request)
+        client.post("/api/v1/packages/", json=delivery_conditions)
+        client.post("/api/v1/sensors/data", json=signed_request)
         assert len(sensors_mod.CONDITIONS_CACHE) == 1
 
     def test_cache_prevents_repeat_download(self, client, mock_swarm, delivery_conditions, signed_request, monkeypatch):
         """Second telemetry packet must use cached conditions, not call download_json."""
-        client.post("/packages/", json=delivery_conditions)
-        client.post("/sensors/data", json=signed_request)  # populates cache
+        client.post("/api/v1/packages/", json=delivery_conditions)
+        client.post("/api/v1/sensors/data", json=signed_request)  # populates cache
 
         # Any call to download_json after this should NOT happen for conditions
         async def _must_not_be_called(ref: str):
@@ -260,7 +260,7 @@ class TestConditionsCache:
 
         monkeypatch.setattr("api.sensors.download_json", _must_not_be_called)
 
-        resp = client.post("/sensors/data", json={
+        resp = client.post("/api/v1/sensors/data", json={
             **signed_request,
             "payload": {**signed_request["payload"], "nonce": 2},
         })
@@ -279,49 +279,49 @@ class TestConditionsCache:
 class TestSwarmUnavailable503:
     def test_upload_request_error_returns_503(self, client, mock_swarm, delivery_conditions, signed_request, monkeypatch):
         import httpx
-        client.post("/packages/", json=delivery_conditions)
+        client.post("/api/v1/packages/", json=delivery_conditions)
 
         async def _fail_upload(data: dict) -> str:
             raise httpx.RequestError("connection refused")
 
         monkeypatch.setattr("api.sensors.upload_json", _fail_upload)
-        resp = client.post("/sensors/data", json=signed_request)
+        resp = client.post("/api/v1/sensors/data", json=signed_request)
         assert resp.status_code == 503
         assert resp.json()["detail"] == "Swarm storage unavailable"
 
     def test_upload_http_status_error_returns_503(self, client, mock_swarm, delivery_conditions, signed_request, monkeypatch):
         import httpx
-        client.post("/packages/", json=delivery_conditions)
+        client.post("/api/v1/packages/", json=delivery_conditions)
 
         async def _fail_upload(data: dict) -> str:
             response = httpx.Response(500)
             raise httpx.HTTPStatusError("500", request=httpx.Request("POST", "/"), response=response)
 
         monkeypatch.setattr("api.sensors.upload_json", _fail_upload)
-        resp = client.post("/sensors/data", json=signed_request)
+        resp = client.post("/api/v1/sensors/data", json=signed_request)
         assert resp.status_code == 503
 
     def test_download_conditions_request_error_returns_503(self, client, mock_swarm, delivery_conditions, signed_request, monkeypatch):
         import httpx
-        client.post("/packages/", json=delivery_conditions)
+        client.post("/api/v1/packages/", json=delivery_conditions)
 
         async def _fail_download(ref: str) -> dict:
             raise httpx.RequestError("timeout")
 
         monkeypatch.setattr("api.sensors.download_json", _fail_download)
-        resp = client.post("/sensors/data", json=signed_request)
+        resp = client.post("/api/v1/sensors/data", json=signed_request)
         assert resp.status_code == 503
 
     def test_get_latest_download_error_returns_503(self, client, mock_swarm, delivery_conditions, signed_request, monkeypatch):
         import httpx
-        client.post("/packages/", json=delivery_conditions)
-        client.post("/sensors/data", json=signed_request)
+        client.post("/api/v1/packages/", json=delivery_conditions)
+        client.post("/api/v1/sensors/data", json=signed_request)
 
         async def _fail_download(ref: str) -> dict:
             raise httpx.RequestError("timeout")
 
         monkeypatch.setattr("api.sensors.download_json", _fail_download)
-        resp = client.get(f"/sensors/latest/{delivery_conditions['device_id']}")
+        resp = client.get(f"/api/v1/sensors/latest/{delivery_conditions['device_id']}")
         assert resp.status_code == 503
 
 
@@ -331,39 +331,39 @@ class TestSwarmUnavailable503:
 
 class TestIndexRollback:
     def test_index_write_failure_returns_500(self, client, mock_swarm, delivery_conditions, signed_request, monkeypatch):
-        client.post("/packages/", json=delivery_conditions)
+        client.post("/api/v1/packages/", json=delivery_conditions)
 
         async def _fail_set_entry(device_id: str, **fields) -> None:
             raise OSError("disk full")
 
         monkeypatch.setattr("api.sensors.set_device_entry", _fail_set_entry)
-        resp = client.post("/sensors/data", json=signed_request)
+        resp = client.post("/api/v1/sensors/data", json=signed_request)
         assert resp.status_code == 500
 
     def test_index_write_failure_detail_mentions_retry(self, client, mock_swarm, delivery_conditions, signed_request, monkeypatch):
-        client.post("/packages/", json=delivery_conditions)
+        client.post("/api/v1/packages/", json=delivery_conditions)
 
         async def _fail_set_entry(device_id: str, **fields) -> None:
             raise OSError("disk full")
 
         monkeypatch.setattr("api.sensors.set_device_entry", _fail_set_entry)
-        body = client.post("/sensors/data", json=signed_request).json()
+        body = client.post("/api/v1/sensors/data", json=signed_request).json()
         assert "retry" in body["detail"].lower()
 
     def test_swarm_write_succeeds_but_index_fails_not_counted_in_history(
         self, client, mock_swarm, delivery_conditions, signed_request, monkeypatch
     ):
         """If index update fails, the record should NOT appear in history (index not updated)."""
-        client.post("/packages/", json=delivery_conditions)
+        client.post("/api/v1/packages/", json=delivery_conditions)
 
         async def _fail_set_entry(device_id: str, **fields) -> None:
             raise OSError("disk full")
 
         monkeypatch.setattr("api.sensors.set_device_entry", _fail_set_entry)
-        client.post("/sensors/data", json=signed_request)  # this fails at index step
+        client.post("/api/v1/sensors/data", json=signed_request)  # this fails at index step
 
         # History should still be empty (index not updated)
-        resp = client.get(f"/packages/{delivery_conditions['device_id']}/history")
+        resp = client.get(f"/api/v1/packages/{delivery_conditions['device_id']}/history")
         assert resp.status_code == 404
 
 
