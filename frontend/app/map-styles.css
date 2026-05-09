@@ -1,0 +1,157 @@
+/* Map styles for the Intelligence Hub. */
+
+/* Hide MapLibre controls until the user hovers the map wrapper. */
+.maplibregl-ctrl-group {
+  opacity: 0;
+  transition: opacity 200ms ease;
+  background: rgba(8, 10, 14, 0.85) !important;
+  border: 1px solid rgba(30, 38, 50, 0.9) !important;
+  box-shadow: none !important;
+}
+.vt-mapwrap:hover .maplibregl-ctrl-group { opacity: 1; }
+.maplibregl-ctrl-attrib {
+  background: rgba(0,0,0,0.4) !important;
+  color: #4A5260 !important;
+  font-size: 9px !important;
+}
+.maplibregl-ctrl-attrib a { color: #5B6776 !important; }
+.maplibregl-ctrl-icon { filter: invert(1) brightness(0.9); }
+.maplibregl-ctrl-group button { background: transparent !important; }
+.maplibregl-ctrl-group button + button {
+  border-top: 1px solid rgba(30, 38, 50, 0.9) !important;
+}
+
+/* Pulsing red ring when shipment is COMPROMISED. */
+.vt-panic {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: 16px;
+  z-index: 5;
+  animation: vt-panic-pulse 1.6s ease-in-out infinite;
+}
+@keyframes vt-panic-pulse {
+  0%, 100% {
+    box-shadow:
+      inset 0 0 0 1px rgba(239, 68, 68, 0.30),
+      inset 0 0 40px rgba(239, 68, 68, 0.10);
+  }
+  50% {
+    box-shadow:
+      inset 0 0 0 2px rgba(239, 68, 68, 0.70),
+      inset 0 0 90px rgba(239, 68, 68, 0.32);
+  }
+}
+
+/* Page-wide subtle wash when compromised. */
+body.vt-compromised::before {
+  content: "";
+  position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background:
+    radial-gradient(1200px 600px at 80% -10%, rgba(239,68,68,0.09), transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, rgba(251,146,60,0.05), transparent 60%);
+}
+
+/* Pulsing head marker. */
+.vt-head { --vt-accent: #22D3EE; position: relative; width: 16px; height: 16px; cursor: pointer; }
+.vt-head__core {
+  position: absolute; inset: 4px; border-radius: 9999px;
+  background: var(--vt-accent);
+  box-shadow: 0 0 14px var(--vt-accent), 0 0 2px #000 inset;
+}
+.vt-head__pulse {
+  position: absolute; inset: 0; border-radius: 9999px;
+  background: var(--vt-accent); opacity: 0.55;
+  animation: vt-pulse 2.2s ease-out infinite;
+  pointer-events: none;
+}
+@keyframes vt-pulse {
+  0%   { transform: scale(0.6); opacity: 0.55; }
+  80%  { transform: scale(2.6); opacity: 0; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+
+/* Endpoint pin. */
+.vt-pin { --c: #5B6776; position: relative; width: 12px; height: 12px; transform: translateY(-2px); pointer-events: none; }
+.vt-pin__ring { position: absolute; inset: 0; border-radius: 9999px; border: 1.2px solid var(--c); opacity: 0.6; }
+.vt-pin__dot { position: absolute; inset: 3px; border-radius: 9999px; background: var(--c); }
+.vt-pin__label {
+  position: absolute; left: 50%; top: -16px; transform: translateX(-50%);
+  font-size: 8px; letter-spacing: 0.22em; font-weight: 500; color: var(--c);
+  white-space: nowrap; padding: 2px 6px; border-radius: 4px;
+  background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
+}
+
+/* Popup. */
+.vt-popup .maplibregl-popup-content {
+  background: rgba(0,0,0,0.94);
+  color: #E6E9EF;
+  border: 1px solid #1E2632;
+  border-radius: 14px;
+  padding: 14px;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.6), 0 0 28px -10px rgba(34,211,238,0.4);
+}
+.vt-popup .maplibregl-popup-tip {
+  border-top-color: rgba(0,0,0,0.94) !important;
+  border-bottom-color: rgba(0,0,0,0.94) !important;
+}
+.vt-popup .maplibregl-popup-close-button { color: #5B6776; font-size: 16px; padding: 4px 8px; }
+.vt-pop__head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.vt-pop__chip {
+  font-size: 9px; letter-spacing: 0.22em; padding: 2px 6px; border-radius: 999px;
+  color: var(--vt-accent, #22D3EE); border: 1px solid color-mix(in oklab, var(--vt-accent, #22D3EE) 40%, transparent);
+  background: color-mix(in oklab, var(--vt-accent, #22D3EE) 8%, transparent);
+}
+.vt-pop__code { font-family: ui-monospace, SF Mono, Menlo, monospace; font-size: 10px; color: #7A8493; letter-spacing: 0.12em; }
+.vt-pop__title { font-size: 13px; font-weight: 500; color: #E6E9EF; margin-bottom: 10px; line-height: 1.3; }
+.vt-pop__grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 8px; }
+.vt-pop__cell { background: rgba(16,21,30,0.65); border: 1px solid #1E2632; border-radius: 8px; padding: 6px 8px; }
+.vt-pop__k { font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: #5B6776; }
+.vt-pop__v { font-family: ui-monospace, SF Mono, Menlo, monospace; font-size: 13px; color: #E6E9EF; margin-top: 2px; }
+.vt-pop__v span { font-size: 9px; color: #5B6776; margin-left: 3px; }
+.vt-pop__route { display: flex; justify-content: space-between; font-size: 10px; color: #7A8493; padding-top: 8px; border-top: 1px solid #1A2230; }
+.vt-pop__eta { margin-top: 4px; font-size: 10px; color: var(--vt-accent, #22D3EE); letter-spacing: 0.06em; }
+
+/* AI Feed terminal caret. */
+@keyframes vt-caret { 0%,49%{opacity:1} 50%,100%{opacity:0} }
+.vt-caret { animation: vt-caret 1s steps(1) infinite; }
+
+/* Temporal Scrubber. */
+.vt-scrub {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 2px;
+  width: 100%;
+  background: linear-gradient(
+    to right,
+    var(--vt-accent, #22D3EE) 0,
+    var(--vt-accent, #22D3EE) var(--vt-fill, 0%),
+    rgba(255, 255, 255, 0.1) var(--vt-fill, 0%),
+    rgba(255, 255, 255, 0.1) 100%
+  );
+  outline: none;
+  cursor: pointer;
+  border-radius: 999px;
+}
+.vt-scrub::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  background: var(--vt-accent, #22D3EE);
+  border: 2px solid #000;
+  box-shadow: 0 0 14px var(--vt-accent, #22D3EE);
+  cursor: grab;
+  transition: transform 120ms ease;
+}
+.vt-scrub::-webkit-slider-thumb:active { cursor: grabbing; transform: scale(1.15); }
+.vt-scrub::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  background: var(--vt-accent, #22D3EE);
+  border: 2px solid #000;
+  box-shadow: 0 0 14px var(--vt-accent, #22D3EE);
+  cursor: grab;
+}
