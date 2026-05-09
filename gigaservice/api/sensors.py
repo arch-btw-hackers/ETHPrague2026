@@ -45,7 +45,16 @@ async def verify_spacecomputer_signature(payload: dict, signature: str) -> bool:
       {"device_id":"...","nonce":"...","readings":{"temp_c":X.X,"acceleration_overload":X.XXX}}
     using ETHEREUM_SECP256K1 / EIP191 via the KMS, and the server recovers
     the Ethereum address to authenticate the device (TOFU on first contact).
+
+    Accepted signature formats:
+      - 0x-prefixed hex   (65 bytes, Ethereum raw format)
+      - Raw hex           (no 0x prefix)
+      - Standard base64   (Vault transit may return vault:v1:<b64>)
+      - URL-safe base64
+      - DER-encoded ECDSA (70-72 bytes, converted to raw with v brute-force)
+      - 64-byte compact   (r+s, v brute-forced)
     """
+    import base64 as _base64
     from eth_account import Account
     from eth_account.messages import encode_defunct
 
@@ -68,27 +77,65 @@ async def verify_spacecomputer_signature(payload: dict, signature: str) -> bool:
     )
 
     message = encode_defunct(text=signed_str)
-    recovered: str | None = None
 
     sig = signature.strip()
-    # Strip SpaceComputer vault prefix if present (e.g. "vault:v1:<data>")
-    if ":" in sig and not sig.startswith("0x"):
-        sig = sig.rsplit(":", 1)[-1]
+    # Strip Vault/SpaceComputer prefix, e.g. "vault:v1:<data>"
+    if ":" in sig and not sig.lower().startswith("0x"):
+        sig = sig.rsplit(":", 1)[-1].strip()
 
-    # Try formats in order: 0x-hex → raw hex → base64
+    logger.debug("Sig for device=%s: len=%d prefix='%.16s'", device_id, len(sig), sig[:16])
+
+    # Collect candidate 65-byte Ethereum signatures to try (as 0x-hex strings)
     candidates: list[str] = []
-    if sig.startswith("0x"):
-        candidates.append(sig)
-    else:
-        # Could be raw hex (no 0x) or base64
-        candidates.append("0x" + sig)  # try as hex
+
+    def _add_if_valid_hex(s: str) -> None:
+        h = s[2:] if s.lower().startswith("0x") else s
         try:
-            import base64
-            sig_bytes = base64.b64decode(sig + "==")  # lenient padding
-            candidates.append("0x" + sig_bytes.hex())  # try as base64 → hex
+            bytes.fromhex(h)
+            candidates.append("0x" + h)
+        except ValueError:
+            pass
+
+    def _add_from_bytes(raw: bytes) -> None:
+        """Given raw bytes, add appropriate hex candidates."""
+        if len(raw) == 65:
+            candidates.append("0x" + raw.hex())
+        elif len(raw) == 64:
+            # Compact r+s without v — try all recovery ids
+            for v in (0, 1, 27, 28):
+                candidates.append("0x" + raw.hex() + format(v, "02x"))
+        elif len(raw) >= 8 and raw[0] == 0x30:
+            # DER-encoded ECDSA: 30 <len> 02 <r_len> <r> 02 <s_len> <s>
+            try:
+                idx = 2
+                assert raw[idx] == 0x02
+                r_len = raw[idx + 1]
+                r_int = int.from_bytes(raw[idx + 2: idx + 2 + r_len], "big")
+                idx += 2 + r_len
+                assert raw[idx] == 0x02
+                s_len = raw[idx + 1]
+                s_int = int.from_bytes(raw[idx + 2: idx + 2 + s_len], "big")
+                r_hex = r_int.to_bytes(32, "big").hex()
+                s_hex = s_int.to_bytes(32, "big").hex()
+                for v in (27, 28, 0, 1):
+                    candidates.append("0x" + r_hex + s_hex + format(v, "02x"))
+            except Exception:
+                pass
+
+    # 1. Hex candidates (0x-prefixed or raw hex)
+    _add_if_valid_hex(sig)
+
+    # 2. Base64 candidates (standard and URL-safe)
+    for decoder in (_base64.b64decode, _base64.urlsafe_b64decode):
+        try:
+            padding = "=" * (-len(sig) % 4)
+            raw = decoder(sig + padding)
+            _add_from_bytes(raw)
+            break  # if standard worked, no need to try url-safe
         except Exception:
             pass
 
+    recovered: str | None = None
     for candidate in candidates:
         try:
             recovered = Account.recover_message(message, signature=candidate).lower()
@@ -97,7 +144,10 @@ async def verify_spacecomputer_signature(payload: dict, signature: str) -> bool:
             continue
 
     if recovered is None:
-        logger.warning("EIP-191 recovery failed for device=%s (tried %d format(s))", device_id, len(candidates))
+        logger.warning(
+            "EIP-191 recovery failed for device=%s (tried %d candidate(s), sig_len=%d)",
+            device_id, len(candidates), len(sig),
+        )
         return False
 
     # TOFU — store address on first contact, compare on subsequent

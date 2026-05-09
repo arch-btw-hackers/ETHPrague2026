@@ -447,6 +447,56 @@ class TestVerifySpacecomputerSignature:
         sig_raw, _ = self._make_eip191_sig(payload, fmt="raw_hex")
         assert await verify_spacecomputer_signature(payload, sig_raw) is True
 
+    async def test_der_signature_returns_true(self, mock_swarm):
+        """DER-encoded ECDSA signature (Vault Transit default) is accepted via brute-force v."""
+        import base64
+        from cryptography.hazmat.primitives.asymmetric import ec as _ec
+        from cryptography.hazmat.primitives import hashes as _hashes
+        from eth_account import Account
+        from eth_account.messages import encode_defunct
+        from api.sensors import verify_spacecomputer_signature
+
+        payload = {
+            "device_id": "eip191-dev-der",
+            "nonce": "derabc",
+            "readings": {"temp_c": 19.5, "acceleration_overload": 0.750},
+        }
+        readings = payload.get("readings", {})
+        signed_str = (
+            '{"device_id":"' + payload["device_id"] + '",'
+            '"nonce":"' + payload["nonce"] + '",'
+            '"readings":{"temp_c":' + f'{readings["temp_c"]:.1f}' + ','
+            '"acceleration_overload":' + f'{readings["acceleration_overload"]:.3f}' + '}}'
+        )
+        # eth_account uses keccak of the EIP-191 prefix + message
+        from eth_account.messages import encode_defunct
+        msg = encode_defunct(text=signed_str)
+        from eth_account._utils.signing import sign_message_hash
+        from eth_keys import keys as _ek
+
+        # Generate a real eth_account key, get the raw 65-byte sig, re-encode as DER
+        acct = Account.create()
+        sig_hex, _ = self._make_eip191_sig(payload, fmt="hex")
+        sig_bytes = bytes.fromhex(sig_hex[2:])  # 65 bytes: r(32) + s(32) + v(1)
+        r = int.from_bytes(sig_bytes[:32], "big")
+        s = int.from_bytes(sig_bytes[32:64], "big")
+
+        # Encode r and s as DER INTEGER (add 0x00 if high bit set)
+        def _der_int(n: int) -> bytes:
+            b = n.to_bytes(32, "big").lstrip(b"\x00") or b"\x00"
+            if b[0] & 0x80:
+                b = b"\x00" + b
+            return bytes([0x02, len(b)]) + b
+
+        r_der = _der_int(r)
+        s_der = _der_int(s)
+        seq = r_der + s_der
+        der_bytes = bytes([0x30, len(seq)]) + seq
+        sig_b64 = base64.b64encode(der_bytes).decode()
+
+        # DER signature passed as base64 — server must brute-force v
+        assert await verify_spacecomputer_signature(payload, sig_b64) is True
+
     async def test_tofu_second_call_same_key_returns_true(self, mock_swarm):
         """Same key on second call → address matches stored TOFU → True."""
         from eth_account import Account
