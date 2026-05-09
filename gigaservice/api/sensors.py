@@ -59,15 +59,16 @@ async def verify_spacecomputer_signature(payload: dict, signature: str) -> bool:
     alphabetically, no whitespace) encoded as UTF-8.
 
     Returns True on valid signature.
-    Returns True (with a warning) when DEVICE_PUBLIC_KEY_PEM is not set.
-    Returns False when the signature is invalid or malformed.
+    Returns False when the signature is invalid, malformed, or DEVICE_PUBLIC_KEY_PEM
+    is not configured (misconfiguration is treated as a rejected signature).
     """
     public_key = _load_public_key()
     if public_key is None:
-        logger.warning(
-            "DEVICE_PUBLIC_KEY_PEM not set — skipping signature verification (dev mode)"
+        logger.error(
+            "DEVICE_PUBLIC_KEY_PEM is not configured — rejecting telemetry packet. "
+            "Set the ECDSA P-256 public key of the tracker in PEM format."
         )
-        return True
+        return False
 
     # Canonical message: alphabetically sorted keys, no whitespace
     message = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()

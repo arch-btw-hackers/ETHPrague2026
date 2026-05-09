@@ -54,37 +54,37 @@ def _make_w3_mock(tx_hex: str = "0x" + "ab" * 32) -> MagicMock:
 
 
 # ---------------------------------------------------------------------------
-# Dev-mode (missing env vars)
+# Missing env vars → RuntimeError (fail-fast, no silent bypass)
 # ---------------------------------------------------------------------------
 
 class TestSubmitTrackerStateDevMode:
-    async def test_returns_none_when_rpc_url_missing(self, monkeypatch):
+    async def test_raises_when_rpc_url_missing(self, monkeypatch):
         monkeypatch.delenv("WEB3_RPC_URL", raising=False)
         monkeypatch.setenv("CONTRACT_ADDRESS", "0x" + "cc" * 20)
         monkeypatch.setenv("WEB3_PRIVATE_KEY", "0x" + "aa" * 32)
 
         from services.blockchain import submit_tracker_state
-        result = await submit_tracker_state(1, False, "proof")
-        assert result is None
+        with pytest.raises(RuntimeError, match="WEB3_RPC_URL"):
+            await submit_tracker_state(1, False, "proof")
 
-    async def test_returns_none_when_contract_address_missing(self, monkeypatch):
+    async def test_raises_when_contract_address_missing(self, monkeypatch):
         monkeypatch.setenv("WEB3_RPC_URL", "https://rpc.sepolia.org")
         monkeypatch.delenv("CONTRACT_ADDRESS", raising=False)
         monkeypatch.setenv("WEB3_PRIVATE_KEY", "0x" + "aa" * 32)
 
         from services.blockchain import submit_tracker_state
-        result = await submit_tracker_state(1, False, "proof")
-        assert result is None
+        with pytest.raises(RuntimeError, match="CONTRACT_ADDRESS"):
+            await submit_tracker_state(1, False, "proof")
 
-    async def test_returns_none_when_private_key_missing(self, monkeypatch):
+    async def test_raises_when_private_key_missing(self, monkeypatch):
         monkeypatch.setenv("WEB3_RPC_URL", "https://rpc.sepolia.org")
         monkeypatch.setenv("CONTRACT_ADDRESS", "0x" + "cc" * 20)
         monkeypatch.delenv("WEB3_PRIVATE_KEY", raising=False)
         monkeypatch.delenv("SERVER_PRIVATE_KEY", raising=False)
 
         from services.blockchain import submit_tracker_state
-        result = await submit_tracker_state(1, False, "proof")
-        assert result is None
+        with pytest.raises(RuntimeError, match="WEB3_PRIVATE_KEY"):
+            await submit_tracker_state(1, False, "proof")
 
     async def test_accepts_legacy_server_private_key(self, monkeypatch):
         """SERVER_PRIVATE_KEY is the legacy fallback for WEB3_PRIVATE_KEY."""
@@ -256,15 +256,15 @@ class TestHandleViolationCallsSubmitTrackerState:
 # ---------------------------------------------------------------------------
 
 class TestTriggerContractRefund:
-    async def test_returns_none_in_dev_mode(self, monkeypatch):
+    async def test_raises_when_env_vars_missing(self, monkeypatch):
         monkeypatch.delenv("WEB3_RPC_URL", raising=False)
         monkeypatch.delenv("CONTRACT_ADDRESS", raising=False)
         monkeypatch.delenv("WEB3_PRIVATE_KEY", raising=False)
         monkeypatch.delenv("SERVER_PRIVATE_KEY", raising=False)
 
         from services.blockchain import trigger_contract_refund
-        result = await trigger_contract_refund(42)
-        assert result is None
+        with pytest.raises(RuntimeError):
+            await trigger_contract_refund(42)
 
     async def test_calls_cancel_shipment_with_int_id(self, monkeypatch):
         monkeypatch.setenv("WEB3_RPC_URL", "https://rpc.sepolia.org")

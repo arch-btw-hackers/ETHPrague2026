@@ -10,6 +10,11 @@ import pytest
 from unittest.mock import patch
 from fastapi.testclient import TestClient
 
+# Capture the real function at module level (before any test fixtures can mock it).
+# Used by TestVerifySpacecomputerSignature to bypass the autouse conftest mock.
+import api.sensors as _sensors_module
+_real_verify_sig = _sensors_module.verify_spacecomputer_signature
+
 
 # ---------------------------------------------------------------------------
 # POST /sensors/data — happy path
@@ -380,6 +385,11 @@ class TestVerifySpacecomputerSignature:
     ephemeral P-256 key pair — no external infrastructure needed.
     """
 
+    @pytest.fixture(autouse=True)
+    def use_real_verify(self, monkeypatch):
+        """Restore the real function, overriding the conftest autouse mock."""
+        monkeypatch.setattr("api.sensors.verify_spacecomputer_signature", _real_verify_sig)
+
     @pytest.fixture()
     def key_pair(self):
         from cryptography.hazmat.primitives.asymmetric import ec
@@ -435,8 +445,8 @@ class TestVerifySpacecomputerSignature:
         from api.sensors import verify_spacecomputer_signature
         assert await verify_spacecomputer_signature({"x": 1}, "!!!not-base64!!!") is False
 
-    async def test_no_env_var_returns_true_with_warning(self, monkeypatch):
+    async def test_no_env_var_returns_false(self, monkeypatch):
         from api.sensors import verify_spacecomputer_signature
         monkeypatch.delenv("DEVICE_PUBLIC_KEY_PEM", raising=False)
-        # Dev mode: no key configured → returns True (with log warning)
-        assert await verify_spacecomputer_signature({"x": 1}, "anysig") is True
+        # No key configured → rejected (returns False, logs an error)
+        assert await verify_spacecomputer_signature({"x": 1}, "anysig") is False

@@ -15,6 +15,10 @@ from fastapi.testclient import TestClient
 # Make the gigaservice root importable when running pytest from the repo root
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+# Set required env vars before any application modules are imported.
+# These ensure module-level constants (e.g. COURIER_SCHEMA_ID) resolve at import time.
+os.environ.setdefault("EAS_COURIER_SCHEMA", "0x" + "00" * 32)
+
 
 # ---------------------------------------------------------------------------
 # App fixture — single shared TestClient per session
@@ -140,6 +144,7 @@ def mock_blockchain(monkeypatch):
     monkeypatch.setattr("api.sensors.trigger_contract_refund", _noop_refund)
     monkeypatch.setattr("api.sensors.submit_tracker_state", AsyncMock(return_value="0x" + "ab" * 32))
     monkeypatch.setattr("api.sensors.send_html_alert", AsyncMock(return_value=None))
+    monkeypatch.setattr("api.sensors.verify_spacecomputer_signature", AsyncMock(return_value=True))
     monkeypatch.setattr("api.auth.reverse_resolve_ens", _noop_reverse_ens)
     monkeypatch.setattr("api.deps.verify_attestation", _allow_attestation)
 

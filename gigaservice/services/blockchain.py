@@ -85,13 +85,11 @@ async def trigger_contract_refund(shipment_id: int) -> str | None:
     contract_address = os.environ.get("CONTRACT_ADDRESS")
     private_key = os.environ.get("WEB3_PRIVATE_KEY") or os.environ.get("SERVER_PRIVATE_KEY")
 
-    if not rpc_url or not contract_address or not private_key:
-        logger.warning(
-            "Web3 environment variables not configured — skipping cancelShipment "
-            "(shipmentId=%s)",
-            shipment_id,
+    missing = [n for n, v in [("WEB3_RPC_URL", rpc_url), ("CONTRACT_ADDRESS", contract_address), ("WEB3_PRIVATE_KEY", private_key)] if not v]
+    if missing:
+        raise RuntimeError(
+            f"Blockchain not configured — missing environment variables: {', '.join(missing)}"
         )
-        return None
 
     try:
         w3 = _get_web3()
@@ -151,14 +149,11 @@ async def submit_tracker_state(
     contract_address = os.environ.get("CONTRACT_ADDRESS")
     private_key = os.environ.get("WEB3_PRIVATE_KEY") or os.environ.get("SERVER_PRIVATE_KEY")
 
-    if not rpc_url or not contract_address or not private_key:
-        logger.warning(
-            "Web3 environment variables not configured — skipping submitTrackerState "
-            "(shipmentId=%s, isGood=%s)",
-            shipment_id,
-            is_good,
+    missing = [n for n, v in [("WEB3_RPC_URL", rpc_url), ("CONTRACT_ADDRESS", contract_address), ("WEB3_PRIVATE_KEY", private_key)] if not v]
+    if missing:
+        raise RuntimeError(
+            f"Blockchain not configured — missing environment variables: {', '.join(missing)}"
         )
-        return None
 
     try:
         w3 = _get_web3()
