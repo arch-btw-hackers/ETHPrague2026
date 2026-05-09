@@ -17,6 +17,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from services.auth import decode_jwt
+from services.attestations import verify_attestation
 
 _bearer = HTTPBearer()
 
@@ -57,5 +58,36 @@ class RoleChecker:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Role '{user['role']}' is not permitted for this action",
+            )
+        return user
+
+
+class RequiresAttestation:
+    """Dependency that enforces an on-chain EAS attestation.
+
+    Usage::
+
+        SCHEMA_COURIER = "0x" + "ab" * 32  # replace with your real schema UID
+
+        @router.get("/history")
+        async def history(
+            device_id: str,
+            user: dict = Depends(RequiresAttestation(SCHEMA_COURIER)),
+        ):
+            ...
+
+    Raises 401 Unauthorized when no valid JWT is present.
+    Raises 403 Forbidden when the user lacks the required attestation.
+    """
+
+    def __init__(self, schema_id: str) -> None:
+        self.schema_id = schema_id
+
+    async def __call__(self, user: dict = Depends(get_current_user)) -> dict:
+        has_attestation = await verify_attestation(user["address"], self.schema_id)
+        if not has_attestation:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Required attestation [{self.schema_id}] not found for this address",
             )
         return user

@@ -1,11 +1,20 @@
+import os
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from api.deps import RoleChecker, get_current_user
+from api.deps import RequiresAttestation, RoleChecker, get_current_user
 from services.blockchain import resolve_ens
 from storage.swarm import upload_json, download_json, get_device_entry, set_device_entry
 
 router = APIRouter(prefix="/packages", tags=["Packages"])
+
+# Schema UID for "Certified Courier" attestation.
+# Override via EAS_COURIER_SCHEMA env var to change without redeploying.
+COURIER_SCHEMA_ID = os.environ.get(
+    "EAS_COURIER_SCHEMA",
+    "0x" + "00" * 32,  # zero UID — EAS returns no logs → dev mode grants access
+)
 
 
 class DeliveryConditions(BaseModel):
@@ -47,7 +56,7 @@ async def get_package(device_id: str):
 @router.get("/{device_id}/history")
 async def get_package_history(
     device_id: str,
-    user: dict = Depends(RoleChecker(["provider", "admin"])),
+    user: dict = Depends(RequiresAttestation(COURIER_SCHEMA_ID)),
 ):
     """
     Traverse the telemetry linked list stored in Swarm.
