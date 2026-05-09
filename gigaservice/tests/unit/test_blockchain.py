@@ -68,7 +68,7 @@ class TestSubmitTrackerStateDevMode:
         assert result is None
 
     async def test_returns_none_when_contract_address_missing(self, monkeypatch):
-        monkeypatch.setenv("WEB3_RPC_URL", "http://localhost:8545")
+        monkeypatch.setenv("WEB3_RPC_URL", "https://rpc.sepolia.org")
         monkeypatch.delenv("CONTRACT_ADDRESS", raising=False)
         monkeypatch.setenv("WEB3_PRIVATE_KEY", "0x" + "aa" * 32)
 
@@ -77,7 +77,7 @@ class TestSubmitTrackerStateDevMode:
         assert result is None
 
     async def test_returns_none_when_private_key_missing(self, monkeypatch):
-        monkeypatch.setenv("WEB3_RPC_URL", "http://localhost:8545")
+        monkeypatch.setenv("WEB3_RPC_URL", "https://rpc.sepolia.org")
         monkeypatch.setenv("CONTRACT_ADDRESS", "0x" + "cc" * 20)
         monkeypatch.delenv("WEB3_PRIVATE_KEY", raising=False)
         monkeypatch.delenv("SERVER_PRIVATE_KEY", raising=False)
@@ -88,7 +88,7 @@ class TestSubmitTrackerStateDevMode:
 
     async def test_accepts_legacy_server_private_key(self, monkeypatch):
         """SERVER_PRIVATE_KEY is the legacy fallback for WEB3_PRIVATE_KEY."""
-        monkeypatch.setenv("WEB3_RPC_URL", "http://localhost:8545")
+        monkeypatch.setenv("WEB3_RPC_URL", "https://rpc.sepolia.org")
         monkeypatch.setenv("CONTRACT_ADDRESS", "0x" + "cc" * 20)
         monkeypatch.delenv("WEB3_PRIVATE_KEY", raising=False)
         monkeypatch.setenv("SERVER_PRIVATE_KEY", "0x" + "bb" * 32)
@@ -115,7 +115,7 @@ class TestSubmitTrackerStateDevMode:
 
 class TestSubmitTrackerStateOnChain:
     async def test_returns_tx_hash_on_success(self, monkeypatch):
-        monkeypatch.setenv("WEB3_RPC_URL", "http://localhost:8545")
+        monkeypatch.setenv("WEB3_RPC_URL", "https://rpc.sepolia.org")
         monkeypatch.setenv("CONTRACT_ADDRESS", "0x" + "cc" * 20)
         monkeypatch.setenv("WEB3_PRIVATE_KEY", "0x" + "aa" * 32)
 
@@ -135,7 +135,7 @@ class TestSubmitTrackerStateOnChain:
         assert result == expected_hex
 
     async def test_calls_submitTrackerState_with_correct_args(self, monkeypatch):
-        monkeypatch.setenv("WEB3_RPC_URL", "http://localhost:8545")
+        monkeypatch.setenv("WEB3_RPC_URL", "https://rpc.sepolia.org")
         monkeypatch.setenv("CONTRACT_ADDRESS", "0x" + "cc" * 20)
         monkeypatch.setenv("WEB3_PRIVATE_KEY", "0x" + "aa" * 32)
 
@@ -158,7 +158,7 @@ class TestSubmitTrackerStateOnChain:
 
     async def test_rpc_error_returns_none(self, monkeypatch):
         """Network / gas errors are swallowed and return None instead of raising."""
-        monkeypatch.setenv("WEB3_RPC_URL", "http://localhost:8545")
+        monkeypatch.setenv("WEB3_RPC_URL", "https://rpc.sepolia.org")
         monkeypatch.setenv("CONTRACT_ADDRESS", "0x" + "cc" * 20)
         monkeypatch.setenv("WEB3_PRIVATE_KEY", "0x" + "aa" * 32)
 
@@ -267,7 +267,7 @@ class TestTriggerContractRefund:
         assert result is None
 
     async def test_calls_cancel_shipment_with_int_id(self, monkeypatch):
-        monkeypatch.setenv("WEB3_RPC_URL", "http://localhost:8545")
+        monkeypatch.setenv("WEB3_RPC_URL", "https://rpc.sepolia.org")
         monkeypatch.setenv("CONTRACT_ADDRESS", "0x" + "cc" * 20)
         monkeypatch.setenv("WEB3_PRIVATE_KEY", "0x" + "aa" * 32)
 
@@ -288,7 +288,7 @@ class TestTriggerContractRefund:
         mock_w3.eth.contract.return_value.functions.cancelShipment.assert_called_once_with(99)
 
     async def test_rpc_error_returns_none(self, monkeypatch):
-        monkeypatch.setenv("WEB3_RPC_URL", "http://localhost:8545")
+        monkeypatch.setenv("WEB3_RPC_URL", "https://rpc.sepolia.org")
         monkeypatch.setenv("CONTRACT_ADDRESS", "0x" + "cc" * 20)
         monkeypatch.setenv("WEB3_PRIVATE_KEY", "0x" + "aa" * 32)
 

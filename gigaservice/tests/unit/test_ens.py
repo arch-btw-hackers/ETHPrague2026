@@ -37,7 +37,7 @@ class TestResolveEns:
 
     def test_eth_name_resolved_via_w3_ens(self, monkeypatch):
         """Happy path: w3.ens.address returns an address."""
-        monkeypatch.setenv("WEB3_RPC_URL", "http://localhost:8545")
+        monkeypatch.setenv("WEB3_RPC_URL", "https://rpc.sepolia.org")
         expected = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"
 
         mock_w3 = MagicMock()
@@ -51,7 +51,7 @@ class TestResolveEns:
 
     def test_unregistered_eth_name_raises(self, monkeypatch):
         """w3.ens.address returning None must raise ValueError."""
-        monkeypatch.setenv("WEB3_RPC_URL", "http://localhost:8545")
+        monkeypatch.setenv("WEB3_RPC_URL", "https://rpc.sepolia.org")
 
         mock_w3 = MagicMock()
         mock_w3.ens.address = AsyncMock(return_value=None)
@@ -63,7 +63,7 @@ class TestResolveEns:
 
     def test_rpc_error_raises_value_error(self, monkeypatch):
         """RPC-level exceptions are re-raised as ValueError."""
-        monkeypatch.setenv("WEB3_RPC_URL", "http://localhost:8545")
+        monkeypatch.setenv("WEB3_RPC_URL", "https://rpc.sepolia.org")
 
         mock_w3 = MagicMock()
         mock_w3.ens.address = AsyncMock(side_effect=ConnectionError("RPC down"))
@@ -90,7 +90,7 @@ class TestReverseResolveEns:
         assert result is None
 
     def test_returns_ens_name_when_found(self, monkeypatch):
-        monkeypatch.setenv("WEB3_RPC_URL", "http://localhost:8545")
+        monkeypatch.setenv("WEB3_RPC_URL", "https://rpc.sepolia.org")
 
         mock_w3 = MagicMock()
         mock_w3.ens.name = AsyncMock(return_value="vitalik.eth")
@@ -103,7 +103,7 @@ class TestReverseResolveEns:
         assert result == "vitalik.eth"
 
     def test_returns_none_when_no_reverse_record(self, monkeypatch):
-        monkeypatch.setenv("WEB3_RPC_URL", "http://localhost:8545")
+        monkeypatch.setenv("WEB3_RPC_URL", "https://rpc.sepolia.org")
 
         mock_w3 = MagicMock()
         mock_w3.ens.name = AsyncMock(return_value=None)
@@ -117,7 +117,7 @@ class TestReverseResolveEns:
 
     def test_returns_none_on_rpc_error(self, monkeypatch):
         """RPC errors are swallowed — never raises."""
-        monkeypatch.setenv("WEB3_RPC_URL", "http://localhost:8545")
+        monkeypatch.setenv("WEB3_RPC_URL", "https://rpc.sepolia.org")
 
         mock_w3 = MagicMock()
         mock_w3.ens.name = AsyncMock(side_effect=ConnectionError("RPC down"))

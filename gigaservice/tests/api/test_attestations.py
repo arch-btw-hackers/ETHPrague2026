@@ -62,7 +62,7 @@ class TestToBytes32:
 class TestVerifyAttestationDevMode:
     async def test_returns_true_when_eas_address_missing(self, monkeypatch):
         monkeypatch.delenv("EAS_CONTRACT_ADDRESS", raising=False)
-        monkeypatch.setenv("WEB3_RPC_URL", "http://localhost:8545")
+        monkeypatch.setenv("WEB3_RPC_URL", "https://rpc.sepolia.org")
         result = await verify_attestation(USER_ADDR, SCHEMA_ID)
         assert result is True
 
@@ -87,7 +87,7 @@ class TestVerifyAttestationOnChain:
     @pytest.fixture()
     def eas_env(self, monkeypatch):
         monkeypatch.setenv("EAS_CONTRACT_ADDRESS", "0x" + "ea" * 20)
-        monkeypatch.setenv("WEB3_RPC_URL", "http://localhost:8545")
+        monkeypatch.setenv("WEB3_RPC_URL", "https://rpc.sepolia.org")
 
     def _make_attestation_tuple(
         self,
@@ -211,7 +211,7 @@ class TestAttestationCaching:
     def eas_env_with_valid_attestation(self, monkeypatch):
         """Set up env + mock w3 so verify_attestation returns True via on-chain path."""
         monkeypatch.setenv("EAS_CONTRACT_ADDRESS", "0x" + "ea" * 20)
-        monkeypatch.setenv("WEB3_RPC_URL", "http://localhost:8545")
+        monkeypatch.setenv("WEB3_RPC_URL", "https://rpc.sepolia.org")
 
         attestation_tuple = (
             b"\x00" * 32, b"\x00" * 32, 0, 0, 0,
@@ -242,7 +242,7 @@ class TestAttestationCaching:
     async def test_negative_result_not_cached(self, monkeypatch):
         """False results are not cached so a fresh attestation takes effect immediately."""
         monkeypatch.setenv("EAS_CONTRACT_ADDRESS", "0x" + "ea" * 20)
-        monkeypatch.setenv("WEB3_RPC_URL", "http://localhost:8545")
+        monkeypatch.setenv("WEB3_RPC_URL", "https://rpc.sepolia.org")
 
         mock_event = MagicMock()
         mock_event.get_logs = AsyncMock(return_value=[])  # no logs → False
