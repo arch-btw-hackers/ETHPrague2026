@@ -47,8 +47,25 @@ _SUBMIT_TRACKER_STATE_ABI = [
     }
 ]
 
+_CREATE_SHIPMENT_ABI = [
+    {
+        "inputs": [
+            {"internalType": "string", "name": "packageRef", "type": "string"},
+            {"internalType": "string", "name": "telemetryProof", "type": "string"},
+            {"internalType": "uint8",  "name": "trackerState", "type": "uint8"},
+            {"internalType": "uint8",  "name": "status", "type": "uint8"},
+            {"internalType": "bool",   "name": "receiverConfirmed", "type": "bool"},
+            {"internalType": "uint256","name": "createdAt", "type": "uint256"},
+        ],
+        "name": "createShipment",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function",
+    }
+]
+
 # Combined ABI used for the ColdChainShipment contract
-_CONTRACT_ABI = _CANCEL_SHIPMENT_ABI + _SUBMIT_TRACKER_STATE_ABI
+_CONTRACT_ABI = _CANCEL_SHIPMENT_ABI + _SUBMIT_TRACKER_STATE_ABI + _CREATE_SHIPMENT_ABI
 
 # ---------------------------------------------------------------------------
 # Lazy singleton — built once on first call, reused afterwards
@@ -206,6 +223,71 @@ async def submit_tracker_state(
             exc_info=True,
         )
         return None
+
+
+async def create_shipment_on_chain(data) -> str:
+    """Call createShipment(...) on the ColdChainShipment contract.
+
+    Args:
+        data: PackageContractInit instance with all shipment fields.
+
+    Returns:
+        Transaction hash (hex string, e.g. '0xabc...').
+
+    Raises:
+        RuntimeError: when env vars are missing or the transaction reverts.
+    """
+    rpc_url = os.environ.get("WEB3_RPC_URL")
+    contract_address = os.environ.get("CONTRACT_ADDRESS")
+    private_key = os.environ.get("WEB3_PRIVATE_KEY") or os.environ.get("SERVER_PRIVATE_KEY")
+
+    missing = [
+        n for n, v in [
+            ("WEB3_RPC_URL", rpc_url),
+            ("CONTRACT_ADDRESS", contract_address),
+            ("WEB3_PRIVATE_KEY", private_key),
+        ] if not v
+    ]
+    if missing:
+        raise RuntimeError(
+            f"Blockchain credentials not configured: {', '.join(missing)}"
+        )
+
+    w3 = _get_web3()
+    checksum_address = AsyncWeb3.to_checksum_address(contract_address)
+    contract = w3.eth.contract(address=checksum_address, abi=_CONTRACT_ABI)
+
+    account = w3.eth.account.from_key(private_key)
+    sender = account.address
+
+    nonce = await w3.eth.get_transaction_count(sender)
+    gas_price = await w3.eth.gas_price
+
+    tx = await contract.functions.createShipment(
+        data.package_ref,
+        data.telemetry_proof,
+        data.tracker_state,
+        data.status,
+        data.receiver_confirmed,
+        data.created_at,
+    ).build_transaction(
+        {
+            "from": sender,
+            "nonce": nonce,
+            "gasPrice": gas_price,
+        }
+    )
+
+    signed = account.sign_transaction(tx)
+    tx_hash = await w3.eth.send_raw_transaction(signed.raw_transaction)
+    hex_hash = tx_hash.hex()
+
+    logger.info(
+        "createShipment sent — packageRef=%s tx=%s",
+        data.package_ref,
+        hex_hash,
+    )
+    return hex_hash
 
 
 # ---------------------------------------------------------------------------

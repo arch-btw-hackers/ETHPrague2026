@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from api.deps import RequiresAttestation, RoleChecker, get_current_user
-from services.blockchain import resolve_ens
+from services.blockchain import resolve_ens, create_shipment_on_chain
 from storage.swarm import upload_json, download_json, get_device_entry, set_device_entry
 
 router = APIRouter(prefix="/packages", tags=["Packages"])
@@ -32,6 +32,16 @@ class PackageResponse(BaseModel):
     swarm_hash: str
 
 
+class PackageContractInit(BaseModel):
+    """Payload for initialising a shipment in the smart contract (no-auth)."""
+    package_ref: str
+    telemetry_proof: str
+    tracker_state: int   # Solidity enum value
+    status: int          # Solidity enum ShipmentStatus value
+    receiver_confirmed: bool
+    created_at: int      # Unix timestamp
+
+
 @router.post("/", response_model=PackageResponse)
 async def create_package(
     conditions: DeliveryConditions,
@@ -47,6 +57,16 @@ async def create_package(
     swarm_hash = await upload_json(conditions.model_dump())
     await set_device_entry(device_id, conditions_hash=swarm_hash, latest_telemetry_hash=None)
     return PackageResponse(device_id=device_id, swarm_hash=swarm_hash)
+
+
+@router.post("/initialize")
+async def initialize_package_on_chain(data: PackageContractInit):
+    """Create a shipment in the smart contract. No authentication required (hackathon demo)."""
+    try:
+        tx_hash = await create_shipment_on_chain(data)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Blockchain error: {exc}")
+    return {"status": "ok", "tx_hash": tx_hash}
 
 
 @router.get("/{device_id}")
