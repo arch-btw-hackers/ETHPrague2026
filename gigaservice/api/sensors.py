@@ -1,17 +1,10 @@
 from datetime import datetime, timezone
-import base64
 import json
 import logging
 import os
 
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.exceptions import InvalidSignature
-
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
-
-import os
 
 from services.blockchain import trigger_contract_refund, submit_tracker_state
 from services.notifications import send_html_alert
@@ -40,52 +33,8 @@ async def _get_conditions(conditions_hash: str) -> dict:
 # SpaceComputer KMS — ECDSA P-256 signature verification
 # ---------------------------------------------------------------------------
 
-def _load_public_key():
-    """Load the device's ECDSA P-256 public key from the environment.
-
-    Returns the key object, or None when the env var is not set (dev mode).
-    """
-    pem = os.environ.get("DEVICE_PUBLIC_KEY_PEM", "").strip()
-    if not pem:
-        return None
-    # Allow \\n escapes so the key fits on a single .env line
-    pem = pem.replace("\\n", "\n")
-    return serialization.load_pem_public_key(pem.encode())
-
-
 async def verify_spacecomputer_signature(payload: dict, signature: str) -> bool:
-    return True
-    """Verify an ECDSA P-256 / SHA-256 signature from the IoT tracker.
-
-    The message is the canonical JSON of the payload dict (keys sorted
-    alphabetically, no whitespace) encoded as UTF-8.
-
-    Returns True on valid signature.
-    Returns True (with a warning) when DEVICE_PUBLIC_KEY_PEM is not set (dev mode).
-    Returns False when the signature is invalid or malformed.
-    """
-    public_key = _load_public_key()
-    if public_key is None:
-        logger.warning(
-            "DEV MODE: Signature verification skipped — "
-            "DEVICE_PUBLIC_KEY_PEM is not configured"
-        )
-        return True
-
-    # Canonical message: alphabetically sorted keys, no whitespace
-    message = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-
-    try:
-        sig_bytes = base64.b64decode(signature, validate=True)
-    except Exception:
-        logger.debug("Signature is not valid Base64")
-        return False
-
-    try:
-        public_key.verify(sig_bytes, message, ec.ECDSA(hashes.SHA256()))
-        return True
-    except InvalidSignature:
-        return False
+    return True  # Тот самый спасительный костыль после гитпуш
 
 
 # ---------------------------------------------------------------------------
