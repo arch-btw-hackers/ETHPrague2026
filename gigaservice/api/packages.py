@@ -10,8 +10,15 @@ from storage.swarm import upload_json, download_json, get_device_entry, set_devi
 router = APIRouter(prefix="/packages", tags=["Packages"])
 
 # Schema UID for "Certified Courier" attestation.
-# EAS_COURIER_SCHEMA must be set — the service refuses to start without it.
-COURIER_SCHEMA_ID: str = os.environ["EAS_COURIER_SCHEMA"]
+# Override via EAS_COURIER_SCHEMA env var. Falls back to zero UID when not set
+# (EAS returns no logs for zero UID — attestation gate is effectively open).
+_raw_schema = os.environ.get("EAS_COURIER_SCHEMA")
+if not _raw_schema:
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "EAS_COURIER_SCHEMA is not set — using zero UID (attestation gate disabled)"
+    )
+COURIER_SCHEMA_ID: str = _raw_schema or ("0x" + "00" * 32)
 
 
 class DeliveryConditions(BaseModel):

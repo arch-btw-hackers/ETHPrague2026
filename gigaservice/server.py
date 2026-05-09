@@ -2,8 +2,13 @@ from contextlib import asynccontextmanager
 
 import httpx
 import uvicorn
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+
+# Load .env from the same directory as server.py (no-op when env vars are
+# already present, so CI variables always take precedence).
+load_dotenv()
 
 import storage.swarm as swarm_store
 from api import router as api_router

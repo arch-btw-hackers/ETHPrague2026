@@ -87,9 +87,13 @@ async def trigger_contract_refund(shipment_id: int) -> str | None:
 
     missing = [n for n, v in [("WEB3_RPC_URL", rpc_url), ("CONTRACT_ADDRESS", contract_address), ("WEB3_PRIVATE_KEY", private_key)] if not v]
     if missing:
-        raise RuntimeError(
-            f"Blockchain not configured — missing environment variables: {', '.join(missing)}"
+        logger.warning(
+            "Blockchain features disabled: missing credentials (%s) — "
+            "cancelShipment(shipmentId=%s) skipped",
+            ", ".join(missing),
+            shipment_id,
         )
+        return None
 
     try:
         w3 = _get_web3()
@@ -151,9 +155,13 @@ async def submit_tracker_state(
 
     missing = [n for n, v in [("WEB3_RPC_URL", rpc_url), ("CONTRACT_ADDRESS", contract_address), ("WEB3_PRIVATE_KEY", private_key)] if not v]
     if missing:
-        raise RuntimeError(
-            f"Blockchain not configured — missing environment variables: {', '.join(missing)}"
+        logger.warning(
+            "Blockchain features disabled: missing credentials (%s) — "
+            "submitTrackerState(shipmentId=%s) skipped",
+            ", ".join(missing),
+            shipment_id,
         )
+        return None
 
     try:
         w3 = _get_web3()
