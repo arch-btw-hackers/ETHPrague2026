@@ -1,4 +1,5 @@
 import React from 'react';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
 import './AmazonWallet.css';
 
 const AmazonWallet = () => {
@@ -57,6 +58,10 @@ const AmazonWallet = () => {
 
                     <div className="checkout-card">
                         <h2>Payment method</h2>
+
+                        <div style={{ marginTop: '15px' }}>
+                            <ConnectButton />
+                        </div>
                     </div>
 
                     <div className="checkout-card">

@@ -30,7 +30,7 @@ const AmazonCart = () => {
                             <span className="line-2">🇺🇸 EN ▾</span>
                         </div>
                         <div className="nav-tool-item">
-                            <span className="line-1">Hello, Nastia</span>
+                            <span className="line-1">Hello, Customer</span>
                             <span className="line-2">Account & Lists ▾</span>
                         </div>
                         <div className="nav-tool-item">
@@ -61,7 +61,7 @@ const AmazonCart = () => {
                     <div className="sc-card visa-banner">
                         <img src="https://m.media-amazon.com/images/G/01/credit/CBCC/acq-marketing/maple/Q123-1103_US_CBCC_ACQ_Maple_Thumbnail_126x80._CB613265021_.png" alt="Visa" />
                         <div className="text">
-                            Nastia, <b>get $50 off instantly</b> upon approval for <b>Amazon Visa.</b>
+                            You can <b>get $50 off instantly</b> upon approval for <b>Amazon Visa.</b>
                         </div>
                         <button>Learn more</button>
                     </div>
