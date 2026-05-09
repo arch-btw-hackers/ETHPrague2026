@@ -15,7 +15,7 @@
 //  • Panic state — any breach in the LIVE stream flips the global theme
 //    to Warning Orange and clears the AI panel to a refund banner.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
@@ -107,7 +107,23 @@ export default function ShipmentDashboard({
       : "future";
   const isLive = mode === "live";
 
-  // Find telemetry sample at-or-before t (for map marker + readouts).
+  // ── Predicting state ──────────────────────────────────────────────────
+  // When the user scrubs into the future, simulate a 3-second AI inference
+  // before revealing predicted values. Re-armed each time we enter future
+  // mode (or jump to a different forecast hour).
+  const [predicting, setPredicting] = useState(false);
+  const futureBucket = mode === "future" ? Math.floor(t / 3_600_000) : null;
+  useEffect(() => {
+    if (futureBucket == null) {
+      setPredicting(false);
+      return;
+    }
+    setPredicting(true);
+    const id = setTimeout(() => setPredicting(false), 3000);
+    return () => clearTimeout(id);
+  }, [futureBucket]);
+
+  // Find telemetry sample at-or-before t (for map marker).
   const scrubTele = useMemo(() => {
     if (!tele.length) return undefined;
     if (mode === "future" || mode === "live") return tele[tele.length - 1];
@@ -119,8 +135,55 @@ export default function ShipmentDashboard({
     return tele[idx];
   }, [tele, t, mode]);
 
+  // Hourly averages over historical telemetry — used to drive past readouts
+  // so each scrub position has a stable, "we already have this data" value.
+  const hourly = useMemo(() => {
+    type Bucket = {
+      t: number;
+      tempSum: number;
+      shockSum: number;
+      humSum: number;
+      speedSum: number;
+      n: number;
+    };
+    const map = new Map<number, Bucket>();
+    for (const x of tele) {
+      const ts = new Date(x.recordedAt).getTime();
+      const hr = Math.floor(ts / 3_600_000) * 3_600_000;
+      let b = map.get(hr);
+      if (!b) {
+        b = { t: hr, tempSum: 0, shockSum: 0, humSum: 0, speedSum: 0, n: 0 };
+        map.set(hr, b);
+      }
+      b.tempSum += x.tempC ?? 0;
+      b.shockSum += x.shockG ?? 0;
+      b.humSum += x.humidity ?? 0;
+      b.speedSum += x.speedKph ?? 0;
+      b.n += 1;
+    }
+    return [...map.values()]
+      .map((b) => ({
+        t: b.t,
+        temp: b.tempSum / b.n,
+        shock: b.shockSum / b.n,
+        hum: b.humSum / b.n,
+        speed: b.speedSum / b.n,
+      }))
+      .sort((a, b) => a.t - b.t);
+  }, [tele]);
+
+  // Pick the hourly bucket whose start is closest at-or-before t.
+  const pastBucket = useMemo(() => {
+    if (!hourly.length) return null;
+    let pick = hourly[0];
+    for (const b of hourly) if (b.t <= t) pick = b;
+    return pick;
+  }, [hourly, t]);
+
+  const liveSample = tele[tele.length - 1];
+
   // Series for charts. Past: slice up to t. Live: full real series. Future:
-  // full real series + forecast up to t. Big readout pulled from value-at-t.
+  // full real series + forecast up to t.
   const series = useMemo(() => {
     const realPoints = (key: keyof Telemetry) =>
       tele
@@ -137,47 +200,81 @@ export default function ShipmentDashboard({
     const slicePast = (arr: { t: number; v: number }[]) =>
       mode === "past" ? arr.filter((p) => p.t <= t) : arr;
     const sliceFuture = (arr: { t: number; v: number }[]) =>
-      mode === "future" ? arr.filter((p) => p.t <= t) : mode === "past" ? [] : arr;
-    const lastAtT = (arr: { t: number; v: number }[]): number | undefined => {
-      if (!arr.length) return undefined;
-      if (mode === "live") return arr[arr.length - 1].v;
-      if (mode === "past") {
-        const f = arr.filter((p) => p.t <= t);
-        return f.length ? f[f.length - 1].v : undefined;
-      }
-      // future: prefer forecast value at-or-before t, else last real value
-      return undefined;
-    };
-    const tempReal = realPoints("tempC");
-    const shockReal = realPoints("shockG");
-    const humReal = realPoints("humidity");
-    const speedReal = realPoints("speedKph");
-    const tempFc = fcPoints("tempC");
-    const shockFc = fcPoints("shockG");
-    const speedFc = fcPoints("speedKph");
-    const fcAtT = (arr: { t: number; v: number }[]) => {
-      if (mode !== "future" || !arr.length) return undefined;
-      const f = arr.filter((p) => p.t <= t);
-      return f.length ? f[f.length - 1].v : arr[0].v;
-    };
+      mode === "future" && !predicting
+        ? arr.filter((p) => p.t <= t)
+        : mode === "past" || predicting
+        ? []
+        : arr;
     return {
-      temp: slicePast(tempReal),
-      shock: slicePast(shockReal),
-      hum: slicePast(humReal),
-      speed: slicePast(speedReal),
+      temp: slicePast(realPoints("tempC")),
+      shock: slicePast(realPoints("shockG")),
+      hum: slicePast(realPoints("humidity")),
+      speed: slicePast(realPoints("speedKph")),
       fc: {
-        temp: sliceFuture(tempFc),
-        shock: sliceFuture(shockFc),
-        speed: sliceFuture(speedFc),
-      },
-      readout: {
-        temp: fcAtT(tempFc) ?? lastAtT(tempReal),
-        shock: fcAtT(shockFc) ?? lastAtT(shockReal),
-        hum: lastAtT(humReal),
-        speed: fcAtT(speedFc) ?? lastAtT(speedReal),
+        temp: sliceFuture(fcPoints("tempC")),
+        shock: sliceFuture(fcPoints("shockG")),
+        speed: sliceFuture(fcPoints("speedKph")),
       },
     };
-  }, [tele, insight, t, mode]);
+  }, [tele, insight, t, mode, predicting]);
+
+  // Snapshot the latest live sample at the moment we enter future mode so
+  // predicted values don't drift as new live telemetry arrives.
+  const futureBaseRef = useRef<Telemetry | null>(null);
+  useEffect(() => {
+    if (mode === "future" && !futureBaseRef.current) {
+      futureBaseRef.current = liveSample ?? null;
+    }
+    if (mode !== "future") {
+      futureBaseRef.current = null;
+    }
+  }, [mode, liveSample]);
+
+  // Deterministic pseudo-random forecast values (seeded by hour bucket) —
+  // used so future readouts are stable when re-scrubbed and don't churn.
+  const futureReadout = useMemo(() => {
+    const base = futureBaseRef.current ?? liveSample;
+    if (mode !== "future" || predicting || !base) return null;
+    const hr = Math.floor(t / 3_600_000);
+    const rand = (s: number) => {
+      const x = Math.sin(s * 9301 + 49297) * 233280;
+      return x - Math.floor(x);
+    };
+    const drift = (seed: number, scale: number) => (rand(seed) * 2 - 1) * scale;
+    return {
+      temp: (base.tempC ?? 0) + drift(hr, 1.4),
+      shock: Math.max(0, (base.shockG ?? 0) + drift(hr + 1, 0.25)),
+      hum: Math.min(95, Math.max(20, (base.humidity ?? 50) + drift(hr + 2, 6))),
+      speed: Math.max(0, (base.speedKph ?? 0) + drift(hr + 3, 12)),
+    };
+  }, [mode, predicting, liveSample, t]);
+
+  // Final readout values per chart, by mode.
+  const readout = (() => {
+    if (mode === "live") {
+      return {
+        temp: liveSample?.tempC,
+        shock: liveSample?.shockG,
+        hum: liveSample?.humidity ?? undefined,
+        speed: liveSample?.speedKph ?? undefined,
+      };
+    }
+    if (mode === "past") {
+      return {
+        temp: pastBucket?.temp,
+        shock: pastBucket?.shock,
+        hum: pastBucket?.hum,
+        speed: pastBucket?.speed,
+      };
+    }
+    // future
+    return {
+      temp: futureReadout?.temp,
+      shock: futureReadout?.shock,
+      hum: futureReadout?.hum,
+      speed: futureReadout?.speed,
+    };
+  })();
 
   if (error) {
     return (
@@ -257,8 +354,9 @@ export default function ShipmentDashboard({
           height={220}
           precision={1}
           panic={!!compromised}
-          liveValue={series.readout.temp}
+          liveValue={readout.temp}
           mode={mode}
+          predicting={predicting}
         />
         <SensorChart
           data={series.shock}
@@ -271,8 +369,9 @@ export default function ShipmentDashboard({
           height={220}
           precision={2}
           panic={!!compromised}
-          liveValue={series.readout.shock}
+          liveValue={readout.shock}
           mode={mode}
+          predicting={predicting}
         />
         <SensorChart
           data={series.hum}
@@ -282,8 +381,9 @@ export default function ShipmentDashboard({
           height={180}
           precision={0}
           panic={!!compromised}
-          liveValue={series.readout.hum}
+          liveValue={readout.hum}
           mode={mode}
+          predicting={predicting}
         />
         <SensorChart
           data={series.speed}
@@ -294,8 +394,9 @@ export default function ShipmentDashboard({
           height={180}
           precision={0}
           panic={!!compromised}
-          liveValue={series.readout.speed}
+          liveValue={readout.speed}
           mode={mode}
+          predicting={predicting}
         />
       </section>
 

@@ -313,6 +313,7 @@ export function LiveMap({ shipment, scrubTelemetry }: Props) {
         offset: 18,
         closeButton: true,
         closeOnClick: false,
+        anchor: "bottom",
         className: "vt-popup",
         maxWidth: "280px",
       })

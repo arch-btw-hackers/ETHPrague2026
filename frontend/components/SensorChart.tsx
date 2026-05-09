@@ -44,6 +44,8 @@ interface Props {
   liveValue?: number;
   /** Temporal mode — affects readout colour + footer label. */
   mode?: "past" | "live" | "future";
+  /** When true, the chart shows a "predicting…" shimmer instead of a value. */
+  predicting?: boolean;
 }
 
 export function SensorChart({
@@ -60,6 +62,7 @@ export function SensorChart({
   panic = false,
   liveValue,
   mode = "live",
+  predicting = false,
 }: Props) {
   const gid = useId().replace(/:/g, "");
   const stroke = panic ? "#FB923C" : ACCENTS[accent];
@@ -112,23 +115,45 @@ export function SensorChart({
         </div>
         <div className="text-right">
           <div className="flex items-baseline justify-end gap-1.5">
-            <span
-              className={`font-mono text-3xl tracking-tight ${
-                breached || panic ? "text-warn" : "text-white"
-              }`}
-              style={{
-                textShadow: breached || panic
-                  ? "0 0 22px rgba(251,146,60,0.55)"
-                  : `0 0 22px ${stroke}55`,
-              }}
-            >
-              {display.toFixed(precision)}
-            </span>
-            <span className="text-xs text-white/30">{unit}</span>
+            {predicting ? (
+              <span
+                className="font-mono text-3xl tracking-tight"
+                style={{ color: "#A78BFA", textShadow: "0 0 22px rgba(167,139,250,0.55)" }}
+              >
+                <span className="vt-pred-dots">
+                  <span>.</span>
+                  <span>.</span>
+                  <span>.</span>
+                </span>
+              </span>
+            ) : display == null || Number.isNaN(display) ? (
+              <span className="font-mono text-3xl tracking-tight text-white/30">—</span>
+            ) : (
+              <>
+                <span
+                  className={`font-mono text-3xl tracking-tight ${
+                    breached || panic ? "text-warn" : "text-white"
+                  }`}
+                  style={{
+                    textShadow: breached || panic
+                      ? "0 0 22px rgba(251,146,60,0.55)"
+                      : `0 0 22px ${stroke}55`,
+                  }}
+                >
+                  {display.toFixed(precision)}
+                </span>
+                <span className="text-xs text-white/30">{unit}</span>
+              </>
+            )}
           </div>
-          {altText && (
+          {!predicting && altText && (
             <div className="mt-0.5 font-mono text-[10px] text-white/30">
               {altText}
+            </div>
+          )}
+          {predicting && (
+            <div className="mt-0.5 font-mono text-[9px] uppercase tracking-[0.32em] text-violet-300/80">
+              predicting
             </div>
           )}
         </div>

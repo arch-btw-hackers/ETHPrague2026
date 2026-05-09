@@ -156,7 +156,7 @@ export function AIInsights({ trackingCode, panic = false }: Props) {
                   >
                     STATUS · {statusText}
                   </div>
-                  <h3 className="mt-1.5 truncate font-sans text-[15px] font-medium text-white/95">
+                  <h3 className="mt-1.5 font-sans text-[15px] font-medium leading-snug text-white/95">
                     {data.headline}
                   </h3>
                 </div>
