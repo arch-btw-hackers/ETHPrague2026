@@ -91,49 +91,41 @@ class TestNoPackageRegistered:
 # ---------------------------------------------------------------------------
 
 class TestConditionsViolations:
-    def _post_reading(self, client, mock_swarm, temp_c, acc_x, acc_y, conditions=None):
+    def _post_reading(self, client, mock_swarm, temp_c, acc_overload, conditions=None):
         cond = conditions or {"device_id": "tracker-001", "max_temp_c": 25.0, "max_acceleration": 2.0}
         client.post("/packages/", json=cond)
         req = {
             "payload": {
                 "device_id": cond["device_id"],
                 "nonce": 1,
-                "readings": {"temp_c": temp_c, "acceleration_x": acc_x, "acceleration_y": acc_y},
+                "readings": {"temp_c": temp_c, "acceleration_overload": acc_overload},
             },
             "signature": "sig",
         }
         return client.post("/sensors/data", json=req).json()
 
     def test_temp_exceeded_is_invalid(self, client, mock_swarm):
-        body = self._post_reading(client, mock_swarm, temp_c=30.0, acc_x=0.0, acc_y=0.0)
+        body = self._post_reading(client, mock_swarm, temp_c=30.0, acc_overload=0.0)
         assert body["is_valid"] is False
 
-    def test_acc_x_exceeded_is_invalid(self, client, mock_swarm):
-        body = self._post_reading(client, mock_swarm, temp_c=20.0, acc_x=5.0, acc_y=0.0)
+    def test_acc_overload_exceeded_is_invalid(self, client, mock_swarm):
+        body = self._post_reading(client, mock_swarm, temp_c=20.0, acc_overload=5.0)
         assert body["is_valid"] is False
 
-    def test_acc_y_exceeded_is_invalid(self, client, mock_swarm):
-        body = self._post_reading(client, mock_swarm, temp_c=20.0, acc_x=0.0, acc_y=5.0)
-        assert body["is_valid"] is False
-
-    def test_negative_acc_x_exceeded_is_invalid(self, client, mock_swarm):
-        body = self._post_reading(client, mock_swarm, temp_c=20.0, acc_x=-5.0, acc_y=0.0)
-        assert body["is_valid"] is False
-
-    def test_negative_acc_y_exceeded_is_invalid(self, client, mock_swarm):
-        body = self._post_reading(client, mock_swarm, temp_c=20.0, acc_x=0.0, acc_y=-5.0)
+    def test_negative_acc_overload_exceeded_is_invalid(self, client, mock_swarm):
+        body = self._post_reading(client, mock_swarm, temp_c=20.0, acc_overload=-5.0)
         assert body["is_valid"] is False
 
     def test_exact_boundary_is_valid(self, client, mock_swarm):
-        body = self._post_reading(client, mock_swarm, temp_c=25.0, acc_x=2.0, acc_y=2.0)
+        body = self._post_reading(client, mock_swarm, temp_c=25.0, acc_overload=2.0)
         assert body["is_valid"] is True
 
     def test_one_tick_over_temp_is_invalid(self, client, mock_swarm):
-        body = self._post_reading(client, mock_swarm, temp_c=25.001, acc_x=0.0, acc_y=0.0)
+        body = self._post_reading(client, mock_swarm, temp_c=25.001, acc_overload=0.0)
         assert body["is_valid"] is False
 
     def test_all_violated_is_invalid(self, client, mock_swarm):
-        body = self._post_reading(client, mock_swarm, temp_c=99.0, acc_x=99.0, acc_y=99.0)
+        body = self._post_reading(client, mock_swarm, temp_c=99.0, acc_overload=99.0)
         assert body["is_valid"] is False
 
 
@@ -148,7 +140,7 @@ class TestSensorDataValidation:
 
     def test_missing_signature_returns_422(self, client, mock_swarm):
         resp = client.post("/sensors/data", json={
-            "payload": {"device_id": "x", "nonce": 1, "readings": {"temp_c": 20.0, "acceleration_x": 0.0, "acceleration_y": 0.0}}
+            "payload": {"device_id": "x", "nonce": 1, "readings": {"temp_c": 20.0, "acceleration_overload": 0.0}}
         })
         assert resp.status_code == 422
 
@@ -163,7 +155,7 @@ class TestSensorDataValidation:
         resp = client.post("/sensors/data", json={
             "payload": {
                 "device_id": "x", "nonce": 1,
-                "readings": {"temp_c": "hot", "acceleration_x": 0.0, "acceleration_y": 0.0}
+                "readings": {"temp_c": "hot", "acceleration_overload": 0.0}
             },
             "signature": "sig",
         })
@@ -420,7 +412,7 @@ class TestVerifySpacecomputerSignature:
     async def test_valid_signature_returns_true(self, key_pair, pem_env):
         from api.sensors import verify_spacecomputer_signature
         private_key, _ = key_pair
-        payload = {"device_id": "dev-1", "nonce": 42, "readings": {"temp_c": 20.0, "acceleration_x": 0.1, "acceleration_y": 0.2}}
+        payload = {"device_id": "dev-1", "nonce": 42, "readings": {"temp_c": 20.0, "acceleration_overload": 0.1}}
         sig = self._make_signature(private_key, payload)
         assert await verify_spacecomputer_signature(payload, sig) is True
 

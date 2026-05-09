@@ -25,8 +25,7 @@ def _make_record(
         "nonce": 1,
         "readings": {
             "temp_c": 26.0 if not is_valid else 20.0,
-            "acceleration_x": 0.1,
-            "acceleration_y": 0.1,
+            "acceleration_overload": 0.1,
             "lat": lat,
             "lon": lon,
         },
@@ -191,8 +190,7 @@ class TestSensorDataWithGPS:
                 "nonce": 1,
                 "readings": {
                     "temp_c": 20.0,
-                    "acceleration_x": 0.1,
-                    "acceleration_y": 0.1,
+                    "acceleration_overload": 0.1,
                     "lat": 50.07,
                     "lon": 14.43,
                 },
@@ -318,8 +316,7 @@ class TestViolationTriggersAlert:
                 "nonce": 1,
                 "readings": {
                     "temp_c": 30.0,
-                    "acceleration_x": 0.1,
-                    "acceleration_y": 0.1,
+                    "acceleration_overload": 0.1,
                 },
             },
             "signature": "sig",

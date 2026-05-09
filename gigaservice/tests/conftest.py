@@ -170,8 +170,7 @@ def signed_request():
             "nonce": 1,
             "readings": {
                 "temp_c": 20.0,
-                "acceleration_x": 0.5,
-                "acceleration_y": 0.3,
+                "acceleration_overload": 1.159,
             },
         },
         "signature": "valid-sig",

@@ -207,8 +207,7 @@ class TestHandleViolationCallsSubmitTrackerState:
                 "nonce": 1,
                 "readings": {
                     "temp_c": 35.0,  # violation
-                    "acceleration_x": 0.1,
-                    "acceleration_y": 0.1,
+                    "acceleration_overload": 0.1,
                 },
             },
             "signature": "sig",
@@ -240,7 +239,7 @@ class TestHandleViolationCallsSubmitTrackerState:
             "payload": {
                 "device_id": "ship-2",
                 "nonce": 1,
-                "readings": {"temp_c": 40.0, "acceleration_x": 0.1, "acceleration_y": 0.1},
+                "readings": {"temp_c": 40.0, "acceleration_overload": 0.1},
             },
             "signature": "sig",
         }

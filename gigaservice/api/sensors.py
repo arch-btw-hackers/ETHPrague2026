@@ -92,8 +92,7 @@ async def verify_spacecomputer_signature(payload: dict, signature: str) -> bool:
 
 class Readings(BaseModel):
     temp_c: float
-    acceleration_x: float
-    acceleration_y: float
+    acceleration_overload: float
     lat: float | None = None
     lon: float | None = None
 
@@ -187,13 +186,9 @@ async def receive_sensor_data(data: SignedRequest, background_tasks: BackgroundT
         violation_reasons.append(
             f"temp {readings.temp_c:.1f}°C > {conditions['max_temp_c']}°C"
         )
-    if abs(readings.acceleration_x) > conditions["max_acceleration"]:
+    if abs(readings.acceleration_overload) > conditions["max_acceleration"]:
         violation_reasons.append(
-            f"accel_x {readings.acceleration_x:.2f} > {conditions['max_acceleration']}"
-        )
-    if abs(readings.acceleration_y) > conditions["max_acceleration"]:
-        violation_reasons.append(
-            f"accel_y {readings.acceleration_y:.2f} > {conditions['max_acceleration']}"
+            f"accel_overload {readings.acceleration_overload:.3f} > {conditions['max_acceleration']}"
         )
     is_valid = not violation_reasons
     reason = "; ".join(violation_reasons) if violation_reasons else ""
@@ -228,7 +223,7 @@ async def receive_sensor_data(data: SignedRequest, background_tasks: BackgroundT
 
     print(
         f"Device: {payload.device_id} | Temp: {readings.temp_c} | "
-        f"AccX: {readings.acceleration_x} | AccY: {readings.acceleration_y} | "
+        f"Acc: {readings.acceleration_overload} | "
         f"Valid: {is_valid} | Hash: {new_hash[:8]}..."
     )
 
