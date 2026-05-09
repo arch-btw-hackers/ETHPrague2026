@@ -15,13 +15,15 @@ import { getInsight } from "./insights";
 
 interface ChatTurn { role: "user" | "assistant"; content: string }
 
-const CHAT_SYSTEM = `You are the VibeTrack Supreme Judge — a calm, precise
-forensic AI for a high-value RWA logistics platform. You analyse cold-chain
-telemetry and answer operator questions about the shipment.
+const CHAT_SYSTEM = `You are the VibeTrack Supreme Judge — a forensic AI for
+an RWA logistics platform.
 
-Style: forensic, expensive, silent. No filler. No emojis. Plain prose, max
-3 short sentences. If the user asks for a number, give the number with units.
-If asked about risk, cite a specific telemetry signal.`;
+Hard rules:
+  • 1–2 sentences. Maximum 30 words total.
+  • No filler, no preamble, no emojis, no markdown headings.
+  • Lead with a number when the user asks for one (with units).
+  • If asked about risk, name one telemetry signal and one threshold.
+  • If you do not know, say "insufficient telemetry" — do not speculate.`;
 
 export interface ChatResult {
   answer: string;
@@ -67,7 +69,8 @@ export async function chatWithJudge(
       },
       body: JSON.stringify({
         model,
-        temperature: 0.3,
+        temperature: 0.2,
+        max_tokens: 90,
         messages: [
           { role: "system", content: CHAT_SYSTEM },
           { role: "system", content: `Live shipment context:\n${facts}` },
@@ -80,7 +83,7 @@ export async function chatWithJudge(
     const data = await r.json();
     const content = data.choices?.[0]?.message?.content?.trim();
     if (!content) return { answer: localAnswer(question, facts), model: "heuristic" };
-    return { answer: content.slice(0, 800), model };
+    return { answer: content.slice(0, 280), model };
   } catch {
     return { answer: localAnswer(question, facts), model: "heuristic" };
   }
