@@ -83,8 +83,6 @@ export function SensorChart({
   const breached = threshold != null && display > threshold;
   const altText = altUnit ? `${altUnit.convert(display).toFixed(2)} ${altUnit.label}` : null;
   const forecastStartT = data.length ? data[data.length - 1].t : null;
-  const startTs = data[0]?.t;
-  const endTs = data[data.length - 1]?.t;
 
   return (
     <motion.div
@@ -253,20 +251,6 @@ export function SensorChart({
             </AreaChart>
           </ResponsiveContainer>
         )}
-      </div>
-
-      {/* Footer: minimal timeline axis. */}
-      <div className="mt-2 flex items-center justify-between font-mono text-[9px] uppercase tracking-[0.28em] text-white/65">
-        <span>timeline</span>
-        <span>
-          {startTs ? new Date(startTs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"}
-          <span className="mx-2 text-white/40">→</span>
-          {forecast.length
-            ? "+24m forecast"
-            : endTs
-            ? new Date(endTs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-            : "—"}
-        </span>
       </div>
     </motion.div>
   );

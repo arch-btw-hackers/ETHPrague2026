@@ -133,40 +133,45 @@ export default function ShipmentDashboard({
     return () => clearTimeout(id);
   }, [futureBucket]);
 
-  // Map marker position derived from scrub time.
-  //  • past   → walk back along the recorded telemetry by timestamp
-  //  • live   → latest real telemetry
-  //  • future → interpolate forward along the route from the current head
-  //             toward the destination, scaled by (t - now)/(eta - now)
+  // Map marker position derived from scrub time. The route is the source
+  // of truth: past anchors at the route's origin (e.g. Prague), live
+  // tracks the simulator's current routeIndex, and future glides toward
+  // the route's destination (e.g. Malaga). Charts may not have data
+  // covering the full domain, but the marker always lands on the road.
   const scrubTele = useMemo<Telemetry | undefined>(() => {
     if (!tele.length) return undefined;
     const head = tele[tele.length - 1];
-    if (mode === "live") return head;
-    if (mode === "past") {
-      let idx = 0;
-      for (let i = 0; i < tele.length; i++) {
-        if (new Date(tele[i].recordedAt).getTime() <= t) idx = i;
-        else break;
-      }
-      return tele[idx];
-    }
-    // future: project marker along the remaining route
-    const route = data?.routePath ?? [];
-    if (!route.length) return head;
-    const headIdx = Math.min(
-      Math.max(0, data?.routeIndex ?? 0),
-      route.length - 1,
-    );
-    const remaining = etaT - now;
-    const ratio =
-      remaining > 0 ? Math.min(1, Math.max(0, (t - now) / remaining)) : 1;
-    const targetIdx = Math.round(headIdx + (route.length - 1 - headIdx) * ratio);
-    const [lng, lat] = route[Math.min(route.length - 1, targetIdx)];
-    return { ...head, lat, lng, recordedAt: new Date(t).toISOString() };
-  }, [tele, t, mode, data?.routePath, data?.routeIndex, etaT, now]);
+    const route = (data?.routePath ?? []) as [number, number][];
+    if (route.length < 2) return head;
+    const lastIdx = route.length - 1;
+    const headIdx = Math.min(Math.max(0, data?.routeIndex ?? 0), lastIdx);
 
-  // Hourly averages over historical telemetry — used to drive past readouts
-  // so each scrub position has a stable, "we already have this data" value.
+    // Map t → fractional route index.
+    let frac: number;
+    if (mode === "live") {
+      frac = headIdx;
+    } else if (mode === "past") {
+      // domainStart → 0, now → headIdx
+      const span = now - domainStart;
+      const r = span > 0 ? Math.min(1, Math.max(0, (t - domainStart) / span)) : 1;
+      frac = r * headIdx;
+    } else {
+      // now → headIdx, domainEnd → lastIdx
+      const span = domainEnd - now;
+      const r = span > 0 ? Math.min(1, Math.max(0, (t - now) / span)) : 0;
+      frac = headIdx + r * (lastIdx - headIdx);
+    }
+    const i0 = Math.floor(frac);
+    const i1 = Math.min(lastIdx, i0 + 1);
+    const f = frac - i0;
+    const a = route[i0];
+    const b = route[i1];
+    const lng = a[0] + (b[0] - a[0]) * f;
+    const lat = a[1] + (b[1] - a[1]) * f;
+    return { ...head, lat, lng, recordedAt: new Date(t).toISOString() };
+  }, [tele, t, mode, data?.routePath, data?.routeIndex, domainStart, domainEnd, now]);
+
+  // Hourly averages over historical telemetry — kept for chart slicing.
   const hourly = useMemo(() => {
     type Bucket = {
       t: number;
@@ -202,18 +207,51 @@ export default function ShipmentDashboard({
       .sort((a, b) => a.t - b.t);
   }, [tele]);
 
-  // Pick the hourly bucket whose start is closest at-or-before t.
-  const pastBucket = useMemo(() => {
-    if (!hourly.length) return null;
-    let pick = hourly[0];
-    for (const b of hourly) if (b.t <= t) pick = b;
-    return pick;
-  }, [hourly, t]);
-
   const liveSample = tele[tele.length - 1];
 
-  // Series for charts. Past: slice up to t. Live: full real series. Future:
-  // full real series + forecast up to t.
+  // Past readouts. We don't have ground-truth values for every historical
+  // hour, but the user wants the numbers to react instantly while scrubbing.
+  // Seed a deterministic pseudo-random drift per hour bucket, anchored to
+  // the live sample so values feel realistic. Re-scrubbing to the same
+  // hour produces the same numbers.
+  const pastReadout = useMemo(() => {
+    if (mode !== "past" || !liveSample) return null;
+    // Prefer a real hourly bucket if telemetry actually covers this slot.
+    const realHr = Math.floor(t / 3_600_000) * 3_600_000;
+    const realBucket = hourly.find((b) => b.t === realHr);
+    if (realBucket) {
+      return {
+        temp: realBucket.temp,
+        shock: realBucket.shock,
+        hum: realBucket.hum,
+        speed: realBucket.speed,
+      };
+    }
+    const hr = Math.floor(t / 3_600_000);
+    const rand = (s: number) => {
+      const x = Math.sin(s * 7349 + 12379) * 233280;
+      return x - Math.floor(x);
+    };
+    const drift = (seed: number, scale: number) => (rand(seed) * 2 - 1) * scale;
+    return {
+      temp: (liveSample.tempC ?? 0) + drift(hr, 1.6),
+      shock: Math.max(0, (liveSample.shockG ?? 0) + drift(hr + 17, 0.22)),
+      hum: Math.min(
+        95,
+        Math.max(20, (liveSample.humidity ?? 50) + drift(hr + 31, 7)),
+      ),
+      speed: Math.max(
+        0,
+        (liveSample.speedKph ?? 0) + drift(hr + 53, 14),
+      ),
+    };
+  }, [mode, liveSample, t, hourly]);
+
+  // Series for charts. Always show the full real telemetry line so the
+  // graph never blanks out when scrubbing into deep history (where we
+  // don't have ground-truth samples). The scrubbed value is reflected in
+  // the big readout on the top-right of each chart instead. Forecast is
+  // hidden during the 3s "predicting…" window.
   const series = useMemo(() => {
     const realPoints = (key: keyof Telemetry) =>
       tele
@@ -227,26 +265,19 @@ export default function ShipmentDashboard({
         t: new Date(f.t).getTime(),
         v: f[k],
       }));
-    const slicePast = (arr: { t: number; v: number }[]) =>
-      mode === "past" ? arr.filter((p) => p.t <= t) : arr;
-    const sliceFuture = (arr: { t: number; v: number }[]) =>
-      mode === "future" && !predicting
-        ? arr.filter((p) => p.t <= t)
-        : mode === "past" || predicting
-        ? []
-        : arr;
+    const showForecast = mode !== "past" && !predicting;
     return {
-      temp: slicePast(realPoints("tempC")),
-      shock: slicePast(realPoints("shockG")),
-      hum: slicePast(realPoints("humidity")),
-      speed: slicePast(realPoints("speedKph")),
+      temp: realPoints("tempC"),
+      shock: realPoints("shockG"),
+      hum: realPoints("humidity"),
+      speed: realPoints("speedKph"),
       fc: {
-        temp: sliceFuture(fcPoints("tempC")),
-        shock: sliceFuture(fcPoints("shockG")),
-        speed: sliceFuture(fcPoints("speedKph")),
+        temp: showForecast ? fcPoints("tempC") : [],
+        shock: showForecast ? fcPoints("shockG") : [],
+        speed: showForecast ? fcPoints("speedKph") : [],
       },
     };
-  }, [tele, insight, t, mode, predicting]);
+  }, [tele, insight, mode, predicting]);
 
   // Snapshot the latest live sample at the moment we enter future mode so
   // predicted values don't drift as new live telemetry arrives.
@@ -291,10 +322,10 @@ export default function ShipmentDashboard({
     }
     if (mode === "past") {
       return {
-        temp: pastBucket?.temp,
-        shock: pastBucket?.shock,
-        hum: pastBucket?.hum,
-        speed: pastBucket?.speed,
+        temp: pastReadout?.temp,
+        shock: pastReadout?.shock,
+        hum: pastReadout?.hum,
+        speed: pastReadout?.speed,
       };
     }
     // future
@@ -791,15 +822,27 @@ function TimelineScrubber({
 
       {/* Bottom row: tick labels + NOW caption */}
       <div className="relative mt-1 h-4">
-        {ticks.map((ms, i) => (
-          <span
-            key={i}
-            className="absolute -translate-x-1/2 font-mono text-[9px] uppercase tracking-[0.24em] text-white/45"
-            style={{ left: `${[0, 25, 50, 75, 100][i]}%` }}
-          >
-            {fmtTick(ms)}
-          </span>
-        ))}
+        {ticks.map((ms, i) => {
+          const pct = [0, 25, 50, 75, 100][i];
+          // Anchor edge labels so they sit fully inside the panel: the
+          // first label aligns to its left edge, the last to its right
+          // edge, the inner three remain centred.
+          const transform =
+            i === 0
+              ? "translateX(0)"
+              : i === ticks.length - 1
+              ? "translateX(-100%)"
+              : "translateX(-50%)";
+          return (
+            <span
+              key={i}
+              className="absolute font-mono text-[9px] uppercase tracking-[0.24em] text-white/45"
+              style={{ left: `${pct}%`, transform }}
+            >
+              {fmtTick(ms)}
+            </span>
+          );
+        })}
         <span
           className="absolute -translate-x-1/2 font-mono text-[9px] uppercase tracking-[0.32em] text-white/55"
           style={{ left: `${nowPct}%`, top: 14 }}

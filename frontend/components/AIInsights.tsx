@@ -10,7 +10,15 @@
 import { useState } from "react";
 import useSWR from "swr";
 import { motion, AnimatePresence } from "framer-motion";
-import { RefreshCw, Send, FileDown, Sparkles } from "lucide-react";
+import {
+  RefreshCw,
+  Send,
+  FileDown,
+  Sparkles,
+  AlertTriangle,
+  Zap,
+  Loader2,
+} from "lucide-react";
 import { fetcher, type Insight } from "@/lib/api";
 import { EthLogo } from "./EthLogo";
 
@@ -45,6 +53,45 @@ export function AIInsights({ trackingCode, panic = false }: Props) {
   const [history, setHistory] = useState<ChatTurn[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+
+  // Live analysis panels — each button pulls a fresh OpenAI insight when
+  // tapped. Cached locally so the user can flip between panels without
+  // re-spending tokens, and a small spinner indicates work in flight.
+  type AnalysisKind = "anomalies" | "actions";
+  const [analysisKind, setAnalysisKind] = useState<AnalysisKind | null>(null);
+  const [analysisCache, setAnalysisCache] = useState<{
+    anomalies?: { items: string[]; at: number };
+    actions?: { items: string[]; at: number };
+  }>({});
+  const [analysing, setAnalysing] = useState<AnalysisKind | null>(null);
+
+  async function runAnalysis(kind: AnalysisKind) {
+    setAnalysisKind(kind);
+    if (analysing) return;
+    setAnalysing(kind);
+    try {
+      const r = await fetch(
+        `/api/shipments/${trackingCode}/insights?force=1`,
+      );
+      const j = (await r.json()) as Insight;
+      const items =
+        kind === "anomalies"
+          ? j.anomalies ?? []
+          : j.recommendations ?? [];
+      setAnalysisCache((c) => ({
+        ...c,
+        [kind]: { items, at: Date.now() },
+      }));
+      mutate(j, { revalidate: false });
+    } catch {
+      setAnalysisCache((c) => ({
+        ...c,
+        [kind]: { items: ["Network error — retry."], at: Date.now() },
+      }));
+    } finally {
+      setAnalysing(null);
+    }
+  }
 
   async function ask(question: string) {
     if (!question.trim() || sending) return;
@@ -177,17 +224,45 @@ export function AIInsights({ trackingCode, panic = false }: Props) {
                 </div>
               )}
 
-              {/* Bullets — only if present, dense */}
-              {(data.anomalies.length > 0 || data.recommendations.length > 0) && (
-                <div className="grid grid-cols-2 gap-x-5 gap-y-1 pt-1">
-                  {data.anomalies.length > 0 && (
-                    <BulletList label="Anomalies" items={data.anomalies} />
-                  )}
-                  {data.recommendations.length > 0 && (
-                    <BulletList label="Actions" items={data.recommendations} />
-                  )}
+              {/* On-demand analysis — two buttons that fire a fresh AI
+                  call and stream the result inline. Replaces the static
+                  bullet lists. */}
+              <div className="pt-1">
+                <div className="grid grid-cols-2 gap-2">
+                  <AnalysisButton
+                    kind="anomalies"
+                    active={analysisKind === "anomalies"}
+                    busy={analysing === "anomalies"}
+                    cached={!!analysisCache.anomalies}
+                    onClick={() => runAnalysis("anomalies")}
+                  />
+                  <AnalysisButton
+                    kind="actions"
+                    active={analysisKind === "actions"}
+                    busy={analysing === "actions"}
+                    cached={!!analysisCache.actions}
+                    onClick={() => runAnalysis("actions")}
+                  />
                 </div>
-              )}
+                <AnimatePresence mode="wait">
+                  {analysisKind && (
+                    <motion.div
+                      key={analysisKind + (analysisCache[analysisKind]?.at ?? 0)}
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.25 }}
+                      className="overflow-hidden"
+                    >
+                      <AnalysisPanel
+                        kind={analysisKind}
+                        items={analysisCache[analysisKind]?.items}
+                        busy={analysing === analysisKind}
+                      />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -304,6 +379,144 @@ function BulletList({ label, items }: { label: string; items: string[] }) {
           <li key={i} className="text-[11.5px] leading-snug text-white/72">
             · {a}
           </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+const ANALYSIS_META: Record<
+  "anomalies" | "actions",
+  { label: string; tone: string; border: string; bg: string; icon: React.ComponentType<{ className?: string }> }
+> = {
+  anomalies: {
+    label: "Anomalies",
+    tone: "text-amber-300",
+    border: "border-amber-300/30",
+    bg: "bg-amber-300/[0.04]",
+    icon: AlertTriangle,
+  },
+  actions: {
+    label: "Actions",
+    tone: "text-cyan",
+    border: "border-cyan/30",
+    bg: "bg-cyan/[0.04]",
+    icon: Zap,
+  },
+};
+
+function AnalysisButton({
+  kind,
+  active,
+  busy,
+  cached,
+  onClick,
+}: {
+  kind: "anomalies" | "actions";
+  active: boolean;
+  busy: boolean;
+  cached: boolean;
+  onClick: () => void;
+}) {
+  const meta = ANALYSIS_META[kind];
+  const Icon = meta.icon;
+  return (
+    <button
+      onClick={onClick}
+      disabled={busy}
+      className={`group flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left transition ${
+        active
+          ? `${meta.border} ${meta.bg}`
+          : "border-white/[0.06] bg-white/[0.015] hover:border-white/15 hover:bg-white/[0.04]"
+      } disabled:cursor-wait`}
+    >
+      <span className="flex items-center gap-2">
+        <Icon className={`h-3.5 w-3.5 ${active ? meta.tone : "text-white/45"}`} />
+        <span
+          className={`text-[10px] uppercase tracking-[0.28em] ${
+            active ? meta.tone : "text-white/70"
+          }`}
+        >
+          {meta.label}
+        </span>
+      </span>
+      <span className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-[0.24em] text-white/35">
+        {busy ? (
+          <>
+            <Loader2 className="h-3 w-3 animate-spin" />
+            scanning
+          </>
+        ) : cached ? (
+          <>
+            <Sparkles className="h-3 w-3" />
+            refresh
+          </>
+        ) : (
+          <>
+            <Sparkles className="h-3 w-3" />
+            analyse
+          </>
+        )}
+      </span>
+    </button>
+  );
+}
+
+function AnalysisPanel({
+  kind,
+  items,
+  busy,
+}: {
+  kind: "anomalies" | "actions";
+  items?: string[];
+  busy: boolean;
+}) {
+  const meta = ANALYSIS_META[kind];
+  if (busy && !items) {
+    return (
+      <div
+        className={`mt-2 rounded-xl border ${meta.border} ${meta.bg} px-3 py-3`}
+      >
+        <div
+          className={`flex items-center gap-2 text-[10px] uppercase tracking-[0.28em] ${meta.tone}`}
+        >
+          <Loader2 className="h-3 w-3 animate-spin" />
+          analysing live telemetry…
+        </div>
+        <div className="mt-2 space-y-1.5">
+          <div className="h-3 w-5/6 animate-pulse rounded bg-white/[0.06]" />
+          <div className="h-3 w-3/4 animate-pulse rounded bg-white/[0.06]" />
+          <div className="h-3 w-2/3 animate-pulse rounded bg-white/[0.06]" />
+        </div>
+      </div>
+    );
+  }
+  if (!items) return null;
+  if (!items.length) {
+    return (
+      <div
+        className={`mt-2 rounded-xl border ${meta.border} ${meta.bg} px-3 py-2 text-[11px] text-white/65`}
+      >
+        Nothing flagged in the latest telemetry pass.
+      </div>
+    );
+  }
+  return (
+    <div
+      className={`mt-2 rounded-xl border ${meta.border} ${meta.bg} px-3 py-2.5`}
+    >
+      <ul className="space-y-1.5">
+        {items.slice(0, 4).map((line, i) => (
+          <motion.li
+            key={i}
+            initial={{ opacity: 0, x: -4 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: i * 0.08, duration: 0.28 }}
+            className="flex gap-2 text-[12px] leading-snug text-white/85"
+          >
+            <span className={`mt-1 inline-block h-1 w-1 rounded-full ${meta.tone.replace("text-", "bg-")}`} />
+            <span>{line}</span>
+          </motion.li>
         ))}
       </ul>
     </div>
