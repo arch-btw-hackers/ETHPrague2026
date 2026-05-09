@@ -20,9 +20,17 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 # App fixture — single shared TestClient per session
 # ---------------------------------------------------------------------------
 
+# Default mock user injected into all tests — a provider so package endpoints work
+MOCK_PROVIDER_USER = {"address": "0xdeadbeef", "role": "provider"}
+
+
 @pytest.fixture(scope="session")
 def app():
     from server import app as _app
+    from api.deps import get_current_user
+
+    # Override auth for the entire test session: no real JWT/SIWE required
+    _app.dependency_overrides[get_current_user] = lambda: MOCK_PROVIDER_USER
     return _app
 
 

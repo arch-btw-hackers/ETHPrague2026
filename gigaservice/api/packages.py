@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from api.deps import RoleChecker, get_current_user
 from storage.swarm import upload_json, download_json, get_device_entry, set_device_entry
 
 router = APIRouter(prefix="/packages", tags=["Packages"])
@@ -18,7 +19,10 @@ class PackageResponse(BaseModel):
 
 
 @router.post("/", response_model=PackageResponse)
-async def create_package(conditions: DeliveryConditions):
+async def create_package(
+    conditions: DeliveryConditions,
+    user: dict = Depends(RoleChecker(["provider", "admin"])),
+):
     swarm_hash = await upload_json(conditions.model_dump())
     await set_device_entry(conditions.device_id, conditions_hash=swarm_hash, latest_telemetry_hash=None)
     return PackageResponse(device_id=conditions.device_id, swarm_hash=swarm_hash)
@@ -33,7 +37,10 @@ async def get_package(device_id: str):
 
 
 @router.get("/{device_id}/history")
-async def get_package_history(device_id: str):
+async def get_package_history(
+    device_id: str,
+    user: dict = Depends(RoleChecker(["provider", "admin"])),
+):
     """
     Traverse the telemetry linked list stored in Swarm.
     Each record contains a 'prev_hash' pointing to the previous entry.
