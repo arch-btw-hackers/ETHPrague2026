@@ -99,7 +99,7 @@ export function AIInsights({ trackingCode, panic = false }: Props) {
   const statusText = data ? STATUS_LABEL[data.riskLabel] : "ANALYSING";
 
   return (
-    <div className="relative flex h-full flex-col overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.015]">
+    <div className="relative flex h-full max-h-[calc(100vh-180px)] min-h-[460px] flex-col overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.015]">
       {/* Subtle inner glow */}
       <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_50%_-20%,rgba(34,211,238,0.06),transparent_60%)]" />
 

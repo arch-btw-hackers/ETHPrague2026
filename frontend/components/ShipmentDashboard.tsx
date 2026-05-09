@@ -28,6 +28,7 @@ import {
   Radio,
   ShieldCheck,
   ShieldX,
+  X,
 } from "lucide-react";
 import {
   fetcher,
@@ -101,23 +102,22 @@ export default function ShipmentDashboard({
     [tele, isLive, scrubIndex]
   );
 
-  // Series for the charts. When scrubbing, forecast dashed line is hidden
-  // (predictive analytics are anchored to the live "now").
+  // Charts and live readouts ALWAYS reflect the present — timeline scrubbing
+  // only repositions the map marker. This prevents jurors from misreading
+  // historical telemetry as the current state.
   const series = useMemo(() => {
     const map = (key: keyof Telemetry) =>
-      visibleTele
+      tele
         .filter((t) => t[key] != null)
         .map((t) => ({
           t: new Date(t.recordedAt).getTime(),
           v: t[key] as number,
         }));
     const fc = (k: "tempC" | "shockG" | "speedKph") =>
-      isLive
-        ? (insight?.forecast ?? []).map((f) => ({
-            t: new Date(f.t).getTime(),
-            v: f[k],
-          }))
-        : [];
+      (insight?.forecast ?? []).map((f) => ({
+        t: new Date(f.t).getTime(),
+        v: f[k],
+      }));
     return {
       temp: map("tempC"),
       shock: map("shockG"),
@@ -125,7 +125,7 @@ export default function ShipmentDashboard({
       speed: map("speedKph"),
       fc: { temp: fc("tempC"), shock: fc("shockG"), speed: fc("speedKph") },
     };
-  }, [visibleTele, insight, isLive]);
+  }, [tele, insight]);
 
   if (error) {
     return (
@@ -152,29 +152,26 @@ export default function ShipmentDashboard({
       )
     : 0;
 
-  async function callJudge() {
-    await fetch(`/api/shipments/${trackingCode}/judge`, { method: "POST" });
-    mutate();
-  }
-  async function dispute() {
-    await fetch(`/api/shipments/${trackingCode}/judge`, { method: "POST" });
-    mutate();
-  }
-
   return (
     <Shell>
-      <CommandBar
-        data={data}
-        compromised={!!compromised}
-        progress={progress}
-        onDispute={dispute}
-        onJudge={callJudge}
-      />
+      <ActionRunner trackingCode={trackingCode} onMutate={mutate}>
+        {(run, banner) => (
+          <>
+            <TopBar
+              data={data}
+              compromised={!!compromised}
+              onDispute={() => run("dispute")}
+              onJudge={() => run("judge")}
+            />
+            {banner}
+          </>
+        )}
+      </ActionRunner>
 
       <Hero data={data} compromised={!!compromised} />
 
-      <section className="mt-8 grid gap-5 lg:grid-cols-3">
-        <div className="lg:col-span-2 space-y-3">
+      <section className="mt-6 grid gap-5 lg:grid-cols-3 lg:[grid-template-rows:1fr]">
+        <div className="lg:col-span-2 flex flex-col gap-3">
           <LiveMap shipment={data} scrubTelemetry={isLive ? null : scrubTele} />
           <Scrubber
             telemetries={tele}
@@ -195,7 +192,9 @@ export default function ShipmentDashboard({
             }}
           />
         </div>
-        <AIInsights trackingCode={trackingCode} panic={!!compromised} />
+        <div className="lg:h-[calc(460px+74px+12px)] min-h-0">
+          <AIInsights trackingCode={trackingCode} panic={!!compromised} />
+        </div>
       </section>
 
       <section className="mt-5 grid gap-5 md:grid-cols-2">
@@ -204,13 +203,11 @@ export default function ShipmentDashboard({
           forecast={series.fc.temp}
           unit="°C"
           label="Temperature"
-          axisLabel="Temp"
           threshold={data.maxTempC}
           accent="cyan"
           height={220}
           precision={1}
           panic={!!compromised}
-          liveValue={scrubTele?.tempC}
         />
         <SensorChart
           data={series.shock}
@@ -218,36 +215,30 @@ export default function ShipmentDashboard({
           unit="G"
           altUnit={{ label: "m/s²", convert: (v) => v * 9.80665 }}
           label="Shock"
-          axisLabel="Shock"
           threshold={data.maxShockG}
           accent="warn"
           height={220}
           precision={2}
           panic={!!compromised}
-          liveValue={scrubTele?.shockG}
         />
         <SensorChart
           data={series.hum}
           unit="%"
           label="Humidity"
-          axisLabel="Humidity"
           accent="violet"
           height={180}
           precision={0}
           panic={!!compromised}
-          liveValue={scrubTele?.humidity ?? undefined}
         />
         <SensorChart
           data={series.speed}
           forecast={series.fc.speed}
           unit="kph"
           label="Velocity"
-          axisLabel="Speed"
           accent="emerald"
           height={180}
           precision={0}
           panic={!!compromised}
-          liveValue={scrubTele?.speedKph ?? undefined}
         />
       </section>
 
@@ -259,7 +250,6 @@ export default function ShipmentDashboard({
         <IntelligenceFeed shipment={data} insight={insight} />
       </section>
 
-      <Footer />
     </Shell>
   );
 }
@@ -272,48 +262,38 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-// ── Command Bar ─────────────────────────────────────────────────────────
+// ── Top bar — minimal: status + actions only ──────────────────────────
 
-function CommandBar({
+function TopBar({
   data,
   compromised,
-  progress,
   onDispute,
   onJudge,
 }: {
   data: ShipmentDetail;
   compromised: boolean;
-  progress: number;
   onDispute: () => void;
   onJudge: () => void;
 }) {
   return (
-    <div className="sticky top-3 z-30 mb-8 flex flex-wrap items-center gap-3 rounded-2xl border border-white/[0.08] bg-black/80 px-4 py-2.5 backdrop-blur-xl">
-      <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.32em] text-white/50">
-        <span className="font-medium text-white">VibeTrack</span>
-        <span className="text-white/20">/</span>
-        <span>Intelligence Hub</span>
-      </div>
-
-      <div className="ml-2 flex items-center gap-2 border-l border-white/[0.06] pl-3">
-        <StatusBadge status={data.status} />
-        <ENSChip name={ENS.primary} compromised={compromised} />
-      </div>
-
-      <div className="hidden items-center gap-2 md:flex">
-        <HardwareBadge compromised={compromised} />
-      </div>
-
+    <div className="sticky top-3 z-30 mb-6 flex items-center gap-3 rounded-full border border-white/[0.06] bg-black/70 px-4 py-2 backdrop-blur-xl">
+      <StatusBadge status={data.status} />
+      <span className="hidden font-mono text-[10px] uppercase tracking-[0.24em] text-white/35 md:inline">
+        {data.trackingCode}
+      </span>
       <div className="ml-auto flex items-center gap-2">
-        <div className="hidden items-center gap-2 font-mono text-[10px] uppercase tracking-[0.22em] text-white/40 md:flex">
-          <span>{progress}%</span>
-          <span className="text-white/20">·</span>
-          <span>{data.origin.split(",")[0]} → {data.destination.split(",")[0]}</span>
-        </div>
-        <ActionButton onClick={onDispute} tone="warn" icon={<ShieldX className="h-3.5 w-3.5" />}>
+        <ActionButton
+          onClick={onDispute}
+          tone={compromised ? "warn" : "ghost"}
+          icon={<ShieldX className="h-3.5 w-3.5" />}
+        >
           Dispute
         </ActionButton>
-        <ActionButton onClick={onJudge} tone="cyan" icon={<Gavel className="h-3.5 w-3.5" />}>
+        <ActionButton
+          onClick={onJudge}
+          tone="cyan"
+          icon={<Gavel className="h-3.5 w-3.5" />}
+        >
           Supreme Judge
         </ActionButton>
       </div>
@@ -321,7 +301,125 @@ function CommandBar({
   );
 }
 
-// ── Hero ────────────────────────────────────────────────────────────────
+// ── Action runner — wires Dispute / Judge to backend with toast ────────
+
+function ActionRunner({
+  trackingCode,
+  onMutate,
+  children,
+}: {
+  trackingCode: string;
+  onMutate: () => void;
+  children: (
+    run: (kind: "dispute" | "judge") => Promise<void>,
+    banner: React.ReactNode
+  ) => React.ReactNode;
+}) {
+  const [busy, setBusy] = useState<"dispute" | "judge" | null>(null);
+  const [toast, setToast] = useState<{
+    tone: "cyan" | "warn" | "emerald";
+    title: string;
+    body: string;
+  } | null>(null);
+
+  async function run(kind: "dispute" | "judge") {
+    if (busy) return;
+    setBusy(kind);
+    setToast({
+      tone: "cyan",
+      title: kind === "dispute" ? "Dispute filed" : "Judge convened",
+      body:
+        kind === "dispute"
+          ? "On-chain dispute opened — arbitrator listening."
+          : "Supreme Judge reviewing telemetry…",
+    });
+    try {
+      const endpoint = kind === "dispute" ? "dispute" : "judge";
+      const r = await fetch(`/api/shipments/${trackingCode}/${endpoint}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: kind === "dispute"
+          ? JSON.stringify({ reason: "Operator dispute via dashboard" })
+          : undefined,
+      });
+      const j = await r.json().catch(() => ({}));
+      const verdict = j?.verdict ?? j?.judgeVerdict;
+      setToast({
+        tone:
+          verdict === "APPROVE" ? "warn" : verdict === "REJECT" ? "emerald" : "cyan",
+        title:
+          kind === "dispute"
+            ? "Dispute filed"
+            : verdict === "APPROVE"
+            ? "Verdict · Refund Approved"
+            : verdict === "REJECT"
+            ? "Verdict · Claim Rejected"
+            : "Verdict received",
+        body:
+          j?.rationale ??
+          j?.notes ??
+          (j?.error === "NO_REFUND_PREPARED"
+            ? "No refund staged. Run telemetry analysis first."
+            : "Telemetry within bounds."),
+      });
+      onMutate();
+    } catch {
+      setToast({
+        tone: "warn",
+        title: "Network error",
+        body: "Could not reach the hub. Retry shortly.",
+      });
+    } finally {
+      setBusy(null);
+      setTimeout(() => setToast(null), 6000);
+    }
+  }
+
+  const banner = (
+    <AnimatePresence>
+      {toast && (
+        <motion.div
+          initial={{ opacity: 0, y: -6 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6 }}
+          className={`mb-4 flex items-start gap-3 rounded-2xl border px-4 py-3 ${
+            toast.tone === "warn"
+              ? "border-warn/30 bg-warn/[0.04]"
+              : toast.tone === "emerald"
+              ? "border-emerald-500/30 bg-emerald-500/[0.04]"
+              : "border-cyan/30 bg-cyan/[0.04]"
+          }`}
+        >
+          <div className="flex-1">
+            <div
+              className={`text-[10px] uppercase tracking-[0.28em] ${
+                toast.tone === "warn"
+                  ? "text-warn"
+                  : toast.tone === "emerald"
+                  ? "text-emerald-400"
+                  : "text-cyan"
+              }`}
+            >
+              {toast.title}
+            </div>
+            <div className="mt-1 text-[13px] text-white/85">{toast.body}</div>
+          </div>
+          <button
+            onClick={() => setToast(null)}
+            className="text-white/40 hover:text-white"
+            aria-label="Dismiss"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+
+  return <>{children((k) => run(k), banner)}</>;
+}
+
+// ── Hero — single line, no duplication ─────────────────────────────────
 
 function Hero({ data, compromised }: { data: ShipmentDetail; compromised: boolean }) {
   const eta = data.etaAt ? new Date(data.etaAt) : null;
@@ -331,10 +429,10 @@ function Hero({ data, compromised }: { data: ShipmentDetail; compromised: boolea
       ? `${Math.floor(remainMs / 3_600_000)}h ${Math.floor(
           (remainMs % 3_600_000) / 60_000
         )}m`
-      : "—";
+      : null;
 
   return (
-    <header>
+    <header className="mb-6">
       <motion.h1
         initial={{ opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
@@ -344,16 +442,25 @@ function Hero({ data, compromised }: { data: ShipmentDetail; compromised: boolea
         {data.asset}
       </motion.h1>
 
-      <div className="mt-4 flex flex-wrap items-baseline gap-x-6 gap-y-2 text-sm text-white/60">
-        <span className="font-mono text-[11px] uppercase tracking-[0.24em] text-white/40">
-          {data.origin}
-        </span>
-        <span className={`font-mono text-[11px] uppercase tracking-[0.24em] ${compromised ? "text-warn" : "text-cyan"}`}>
-          → {data.destination}
-        </span>
-        <span className="font-mono text-[11px] uppercase tracking-[0.24em] text-white/40">
-          ETA · {eta ? eta.toLocaleString(undefined, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"} · {remain} left
-        </span>
+      <div className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-[11px] uppercase tracking-[0.24em] text-white/45">
+        <span>{data.origin.split(",")[0]}</span>
+        <span className={compromised ? "text-warn" : "text-cyan"}>→</span>
+        <span>{data.destination.split(",")[0]}</span>
+        {eta && (
+          <>
+            <span className="text-white/20">·</span>
+            <span className="text-white/65">
+              ETA{" "}
+              {eta.toLocaleString(undefined, {
+                day: "2-digit",
+                month: "short",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </span>
+            {remain && <span className="text-white/35">· {remain}</span>}
+          </>
+        )}
       </div>
     </header>
   );
@@ -651,13 +758,5 @@ function ActionButton({
       {icon}
       {children}
     </button>
-  );
-}
-
-function Footer() {
-  return (
-    <footer className="mt-16 border-t border-white/[0.04] pt-6 text-[10px] uppercase tracking-[0.32em] text-white/20">
-      VibeTrack · RWA Intelligence · 2030
-    </footer>
   );
 }

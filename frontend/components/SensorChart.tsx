@@ -90,14 +90,9 @@ export function SensorChart({
       {/* Header row: tiny label, big glowing readout. */}
       <div className="flex items-baseline justify-between gap-4">
         <div>
-          <div className="text-[10px] uppercase tracking-[0.28em] text-white/65">
+          <div className="text-[10px] uppercase tracking-[0.28em] text-white/70">
             {label}
           </div>
-          {axisLabel && (
-            <div className="mt-1 font-mono text-[9px] uppercase tracking-[0.32em] text-white/45">
-              y · {axisLabel}
-            </div>
-          )}
         </div>
         <div className="text-right">
           <div className="flex items-baseline justify-end gap-1.5">
