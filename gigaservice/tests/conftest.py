@@ -80,10 +80,10 @@ def mock_swarm(monkeypatch):
 
     index: dict[str, dict] = {}
 
-    def _get_entry(device_id: str):
+    async def _get_entry(device_id: str):
         return index.get(device_id)
 
-    def _set_entry(device_id: str, **fields):
+    async def _set_entry(device_id: str, **fields):
         index.setdefault(device_id, {}).update(fields)
 
     monkeypatch.setattr("api.packages.upload_json", _upload)
@@ -97,6 +97,18 @@ def mock_swarm(monkeypatch):
     monkeypatch.setattr("api.sensors.set_device_entry", _set_entry)
 
     return {"store": store, "index": index}
+
+
+# ---------------------------------------------------------------------------
+# Conditions cache — cleared before every test for isolation
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def clear_conditions_cache():
+    import api.sensors as sensors_mod
+    sensors_mod.CONDITIONS_CACHE.clear()
+    yield
+    sensors_mod.CONDITIONS_CACHE.clear()
 
 
 # ---------------------------------------------------------------------------

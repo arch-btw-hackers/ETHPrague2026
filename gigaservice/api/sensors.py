@@ -1,10 +1,24 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from datetime import datetime
 
 from storage.swarm import upload_json, download_json, get_device_entry, set_device_entry
 
 router = APIRouter(prefix="/sensors", tags=["Sensors"])
+
+
+# ---------------------------------------------------------------------------
+# Conditions cache — avoids a Swarm download on every telemetry packet
+# ---------------------------------------------------------------------------
+
+CONDITIONS_CACHE: dict[str, dict] = {}
+
+
+async def _get_conditions(conditions_hash: str) -> dict:
+    if conditions_hash not in CONDITIONS_CACHE:
+        CONDITIONS_CACHE[conditions_hash] = await download_json(conditions_hash)
+    return CONDITIONS_CACHE[conditions_hash]
 
 
 # ---------------------------------------------------------------------------
@@ -13,9 +27,8 @@ router = APIRouter(prefix="/sensors", tags=["Sensors"])
 
 async def verify_spacecomputer_signature(payload: dict, signature: str) -> bool:
     """
-    TODO: реализовать вызов SpaceComputer KMS.
-    Отправить payload + signature в расширение SpaceComputer для верификации.
-    Пока всегда возвращает True (заглушка).
+    TODO: call SpaceComputer KMS.
+    Stub: always returns True.
     """
     return True
 
@@ -39,7 +52,6 @@ class DevicePayload(BaseModel):
 class SignedRequest(BaseModel):
     payload: DevicePayload
     signature: str
-    # base64_payload: str  # раскомментируй, если трекер шлёт JSON в base64
 
 
 class SensorResponse(BaseModel):
@@ -58,24 +70,21 @@ async def receive_sensor_data(data: SignedRequest):
     payload = data.payload
     readings = payload.readings
 
-    # 1. Проверка подписи через SpaceComputer KMS
-    is_valid_sig = await verify_spacecomputer_signature(
-        payload.model_dump(), data.signature
-    )
-    if not is_valid_sig:
+    # 1. Signature check via SpaceComputer KMS
+    if not await verify_spacecomputer_signature(payload.model_dump(), data.signature):
         raise HTTPException(status_code=403, detail="Invalid signature")
 
-    # 2. Загружаем условия доставки из персистентного индекса + Swarm
-    entry = get_device_entry(payload.device_id)
+    # 2. Load package conditions — from cache or Swarm
+    entry = await get_device_entry(payload.device_id)
     if not entry or not entry.get("conditions_hash"):
         raise HTTPException(
             status_code=404,
             detail=f"No active package for device '{payload.device_id}'",
         )
 
-    conditions = await download_json(entry["conditions_hash"])
+    conditions = await _get_conditions(entry["conditions_hash"])
 
-    # 3. Анализ условий
+    # 3. Rules engine
     is_valid = True
     if readings.temp_c > conditions["max_temp_c"]:
         is_valid = False
@@ -84,23 +93,30 @@ async def receive_sensor_data(data: SignedRequest):
     if abs(readings.acceleration_y) > conditions["max_acceleration"]:
         is_valid = False
 
-    # 4. Сохраняем запись в Swarm (связный список через prev_hash)
+    # 4. Persist telemetry to Swarm (linked list via prev_hash)
+    now = datetime.now(timezone.utc)
     record = {
         **payload.model_dump(),
         "is_valid": is_valid,
-        "timestamp": datetime.utcnow().isoformat(),
-        "prev_hash": entry.get("latest_telemetry_hash"),  # ссылка на предыдущий
+        "timestamp": now.isoformat(),
+        "prev_hash": entry.get("latest_telemetry_hash"),
     }
     new_hash = await upload_json(record)
 
-    # 5. Обновляем индекс: latest_telemetry_hash -> новый хэш
-    set_device_entry(payload.device_id, latest_telemetry_hash=new_hash)
+    # 5. Update index atomically.
+    #    If this fails after the Swarm write, the linked list is inconsistent.
+    #    Return 500 so the tracker can retry with the same nonce.
+    try:
+        await set_device_entry(payload.device_id, latest_telemetry_hash=new_hash)
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Index write failed after Swarm upload. Please retry.",
+        ) from exc
 
     print(
-        f"Device: {payload.device_id} | "
-        f"Temp: {readings.temp_c} | "
-        f"AccX: {readings.acceleration_x} | "
-        f"AccY: {readings.acceleration_y} | "
+        f"Device: {payload.device_id} | Temp: {readings.temp_c} | "
+        f"AccX: {readings.acceleration_x} | AccY: {readings.acceleration_y} | "
         f"Valid: {is_valid} | Hash: {new_hash[:8]}..."
     )
 
@@ -108,15 +124,15 @@ async def receive_sensor_data(data: SignedRequest):
         received=True,
         device_id=payload.device_id,
         is_valid=is_valid,
-        timestamp=datetime.utcnow(),
+        timestamp=now,
     )
 
 
 @router.get("/latest/{device_id}")
 async def get_latest(device_id: str):
-    entry = get_device_entry(device_id)
+    entry = await get_device_entry(device_id)
     if not entry or not entry.get("latest_telemetry_hash"):
         raise HTTPException(status_code=404, detail="No telemetry found")
-    data = await download_json(entry["latest_telemetry_hash"])
-    return data
+    return await download_json(entry["latest_telemetry_hash"])
+
 

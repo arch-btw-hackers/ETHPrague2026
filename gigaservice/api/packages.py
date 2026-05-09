@@ -20,13 +20,13 @@ class PackageResponse(BaseModel):
 @router.post("/", response_model=PackageResponse)
 async def create_package(conditions: DeliveryConditions):
     swarm_hash = await upload_json(conditions.model_dump())
-    set_device_entry(conditions.device_id, conditions_hash=swarm_hash, latest_telemetry_hash=None)
+    await set_device_entry(conditions.device_id, conditions_hash=swarm_hash, latest_telemetry_hash=None)
     return PackageResponse(device_id=conditions.device_id, swarm_hash=swarm_hash)
 
 
 @router.get("/{device_id}")
-def get_package(device_id: str):
-    entry = get_device_entry(device_id)
+async def get_package(device_id: str):
+    entry = await get_device_entry(device_id)
     if not entry:
         raise HTTPException(status_code=404, detail="Package not found")
     return {"device_id": device_id, "swarm_hash": entry["conditions_hash"]}
@@ -39,7 +39,7 @@ async def get_package_history(device_id: str):
     Each record contains a 'prev_hash' pointing to the previous entry.
     Returns a chronological list (oldest first) for frontend charts.
     """
-    entry = get_device_entry(device_id)
+    entry = await get_device_entry(device_id)
     if not entry or not entry.get("latest_telemetry_hash"):
         raise HTTPException(status_code=404, detail="No telemetry found for this device")
 

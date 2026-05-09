@@ -155,3 +155,43 @@ class TestGetPackageHistory:
         assert "count" in body
         assert "history" in body
         assert isinstance(body["history"], list)
+
+
+# ---------------------------------------------------------------------------
+# 503 — Swarm node unavailable
+# ---------------------------------------------------------------------------
+
+class TestPackagesSwarmUnavailable:
+    def test_create_package_upload_error_returns_503(self, client, mock_swarm, delivery_conditions, monkeypatch):
+        import httpx
+
+        async def _fail_upload(data: dict) -> str:
+            raise httpx.RequestError("connection refused")
+
+        monkeypatch.setattr("api.packages.upload_json", _fail_upload)
+        resp = client.post("/packages/", json=delivery_conditions)
+        assert resp.status_code == 503
+        assert resp.json()["detail"] == "Swarm storage unavailable"
+
+    def test_create_package_http_status_error_returns_503(self, client, mock_swarm, delivery_conditions, monkeypatch):
+        import httpx
+
+        async def _fail_upload(data: dict) -> str:
+            response = httpx.Response(503)
+            raise httpx.HTTPStatusError("503", request=httpx.Request("POST", "/"), response=response)
+
+        monkeypatch.setattr("api.packages.upload_json", _fail_upload)
+        resp = client.post("/packages/", json=delivery_conditions)
+        assert resp.status_code == 503
+
+    def test_history_download_error_returns_503(self, client, mock_swarm, delivery_conditions, signed_request, monkeypatch):
+        import httpx
+        client.post("/packages/", json=delivery_conditions)
+        client.post("/sensors/data", json=signed_request)
+
+        async def _fail_download(ref: str) -> dict:
+            raise httpx.RequestError("timeout")
+
+        monkeypatch.setattr("api.packages.download_json", _fail_download)
+        resp = client.get(f"/packages/{delivery_conditions['device_id']}/history")
+        assert resp.status_code == 503

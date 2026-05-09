@@ -239,3 +239,132 @@ class TestGetLatest:
         client.post("/sensors/data", json=signed_request)
         body = client.get(f"/sensors/latest/{delivery_conditions['device_id']}").json()
         assert "is_valid" in body
+
+
+# ---------------------------------------------------------------------------
+# Conditions cache behaviour
+# ---------------------------------------------------------------------------
+
+class TestConditionsCache:
+    def test_cache_populated_after_first_request(self, client, mock_swarm, delivery_conditions, signed_request):
+        import api.sensors as sensors_mod
+        client.post("/packages/", json=delivery_conditions)
+        client.post("/sensors/data", json=signed_request)
+        assert len(sensors_mod.CONDITIONS_CACHE) == 1
+
+    def test_cache_prevents_repeat_download(self, client, mock_swarm, delivery_conditions, signed_request, monkeypatch):
+        """Second telemetry packet must use cached conditions, not call download_json."""
+        client.post("/packages/", json=delivery_conditions)
+        client.post("/sensors/data", json=signed_request)  # populates cache
+
+        # Any call to download_json after this should NOT happen for conditions
+        async def _must_not_be_called(ref: str):
+            raise AssertionError(f"download_json called for {ref} — should have used cache")
+
+        monkeypatch.setattr("api.sensors.download_json", _must_not_be_called)
+
+        resp = client.post("/sensors/data", json={
+            **signed_request,
+            "payload": {**signed_request["payload"], "nonce": 2},
+        })
+        assert resp.status_code == 200
+
+    def test_cache_cleared_between_tests(self):
+        import api.sensors as sensors_mod
+        # The clear_conditions_cache autouse fixture guarantees this
+        assert sensors_mod.CONDITIONS_CACHE == {}
+
+
+# ---------------------------------------------------------------------------
+# 503 — Swarm node unavailable
+# ---------------------------------------------------------------------------
+
+class TestSwarmUnavailable503:
+    def test_upload_request_error_returns_503(self, client, mock_swarm, delivery_conditions, signed_request, monkeypatch):
+        import httpx
+        client.post("/packages/", json=delivery_conditions)
+
+        async def _fail_upload(data: dict) -> str:
+            raise httpx.RequestError("connection refused")
+
+        monkeypatch.setattr("api.sensors.upload_json", _fail_upload)
+        resp = client.post("/sensors/data", json=signed_request)
+        assert resp.status_code == 503
+        assert resp.json()["detail"] == "Swarm storage unavailable"
+
+    def test_upload_http_status_error_returns_503(self, client, mock_swarm, delivery_conditions, signed_request, monkeypatch):
+        import httpx
+        client.post("/packages/", json=delivery_conditions)
+
+        async def _fail_upload(data: dict) -> str:
+            response = httpx.Response(500)
+            raise httpx.HTTPStatusError("500", request=httpx.Request("POST", "/"), response=response)
+
+        monkeypatch.setattr("api.sensors.upload_json", _fail_upload)
+        resp = client.post("/sensors/data", json=signed_request)
+        assert resp.status_code == 503
+
+    def test_download_conditions_request_error_returns_503(self, client, mock_swarm, delivery_conditions, signed_request, monkeypatch):
+        import httpx
+        client.post("/packages/", json=delivery_conditions)
+
+        async def _fail_download(ref: str) -> dict:
+            raise httpx.RequestError("timeout")
+
+        monkeypatch.setattr("api.sensors.download_json", _fail_download)
+        resp = client.post("/sensors/data", json=signed_request)
+        assert resp.status_code == 503
+
+    def test_get_latest_download_error_returns_503(self, client, mock_swarm, delivery_conditions, signed_request, monkeypatch):
+        import httpx
+        client.post("/packages/", json=delivery_conditions)
+        client.post("/sensors/data", json=signed_request)
+
+        async def _fail_download(ref: str) -> dict:
+            raise httpx.RequestError("timeout")
+
+        monkeypatch.setattr("api.sensors.download_json", _fail_download)
+        resp = client.get(f"/sensors/latest/{delivery_conditions['device_id']}")
+        assert resp.status_code == 503
+
+
+# ---------------------------------------------------------------------------
+# Linked list rollback — index write failure after Swarm upload
+# ---------------------------------------------------------------------------
+
+class TestIndexRollback:
+    def test_index_write_failure_returns_500(self, client, mock_swarm, delivery_conditions, signed_request, monkeypatch):
+        client.post("/packages/", json=delivery_conditions)
+
+        async def _fail_set_entry(device_id: str, **fields) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr("api.sensors.set_device_entry", _fail_set_entry)
+        resp = client.post("/sensors/data", json=signed_request)
+        assert resp.status_code == 500
+
+    def test_index_write_failure_detail_mentions_retry(self, client, mock_swarm, delivery_conditions, signed_request, monkeypatch):
+        client.post("/packages/", json=delivery_conditions)
+
+        async def _fail_set_entry(device_id: str, **fields) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr("api.sensors.set_device_entry", _fail_set_entry)
+        body = client.post("/sensors/data", json=signed_request).json()
+        assert "retry" in body["detail"].lower()
+
+    def test_swarm_write_succeeds_but_index_fails_not_counted_in_history(
+        self, client, mock_swarm, delivery_conditions, signed_request, monkeypatch
+    ):
+        """If index update fails, the record should NOT appear in history (index not updated)."""
+        client.post("/packages/", json=delivery_conditions)
+
+        async def _fail_set_entry(device_id: str, **fields) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr("api.sensors.set_device_entry", _fail_set_entry)
+        client.post("/sensors/data", json=signed_request)  # this fails at index step
+
+        # History should still be empty (index not updated)
+        resp = client.get(f"/packages/{delivery_conditions['device_id']}/history")
+        assert resp.status_code == 404
