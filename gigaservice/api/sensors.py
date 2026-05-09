@@ -100,7 +100,7 @@ class Readings(BaseModel):
 
 class DevicePayload(BaseModel):
     device_id: str
-    nonce: int
+    nonce: str
     readings: Readings
 
 
