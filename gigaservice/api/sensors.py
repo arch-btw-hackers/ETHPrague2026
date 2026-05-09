@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 import os
 
-from services.blockchain import trigger_contract_refund
+from services.blockchain import trigger_contract_refund, submit_tracker_state
 from services.notifications import send_html_alert
 from storage.swarm import upload_json, download_json, get_device_entry, set_device_entry
 
@@ -119,9 +119,37 @@ class SensorResponse(BaseModel):
 # Background violation handler
 # ---------------------------------------------------------------------------
 
-async def _handle_violation(device_id: str, reason: str) -> None:
-    """Trigger blockchain refund then send alert email. Called in BackgroundTasks."""
-    tx_hash = await trigger_contract_refund(device_id)
+async def _handle_violation(
+    device_id: str,
+    reason: str,
+    swarm_hash: str,
+) -> None:
+    """Submit on-chain state, trigger legacy refund, then email the owner.
+
+    Args:
+        device_id:   Device/tracker identifier.
+        reason:      Human-readable violation description.
+        swarm_hash:  Swarm reference of the current telemetry record — used
+                     as *telemetryProof* so the on-chain event is auditable.
+    """
+    # Derive a numeric shipment ID from the device_id.
+    # If device_id is already numeric use it directly; otherwise hash it.
+    try:
+        shipment_id = int(device_id)
+    except ValueError:
+        shipment_id = abs(hash(device_id)) % (10 ** 9)
+
+    # Primary: submit tracker state to ColdChainShipment contract
+    tx_hash = await submit_tracker_state(
+        shipment_id=shipment_id,
+        is_good=False,
+        telemetry_proof=swarm_hash,
+    )
+
+    # Secondary: legacy cancelDelivery (kept for backwards compatibility)
+    if not tx_hash:
+        tx_hash = await trigger_contract_refund(device_id)
+
     recipient = os.environ.get("ALERT_RECIPIENT_EMAIL", "")
     if recipient:
         contract_address = os.environ.get("CONTRACT_ADDRESS", "")
@@ -194,7 +222,7 @@ async def receive_sensor_data(data: SignedRequest, background_tasks: BackgroundT
     # 6. If conditions were violated, trigger refund + email alert in the background
     if not is_valid:
         background_tasks.add_task(
-            _handle_violation, payload.device_id, reason
+            _handle_violation, payload.device_id, reason, new_hash
         )
 
     print(

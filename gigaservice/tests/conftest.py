@@ -138,6 +138,7 @@ def mock_blockchain(monkeypatch):
         return True  # grant all attestations by default; override per-test as needed
 
     monkeypatch.setattr("api.sensors.trigger_contract_refund", _noop_refund)
+    monkeypatch.setattr("api.sensors.submit_tracker_state", AsyncMock(return_value="0x" + "ab" * 32))
     monkeypatch.setattr("api.sensors.send_html_alert", AsyncMock(return_value=None))
     monkeypatch.setattr("api.auth.reverse_resolve_ens", _noop_reverse_ens)
     monkeypatch.setattr("api.deps.verify_attestation", _allow_attestation)

@@ -2,12 +2,14 @@
 Blockchain integration — smart-contract interaction via AsyncWeb3.
 
 Environment variables (all required in production):
-  WEB3_RPC_URL       — JSON-RPC endpoint (Infura, Alchemy, or local Anvil)
-  CONTRACT_ADDRESS   — deployed DeliveryEscrow contract address
-  SERVER_PRIVATE_KEY — hex private key used to sign and pay for transactions
+  WEB3_RPC_URL        — JSON-RPC endpoint (Infura, Alchemy, or local Anvil)
+  CONTRACT_ADDRESS    — deployed ColdChainShipment contract address
+  WEB3_PRIVATE_KEY    — hex private key used to sign and pay for transactions
+  SERVER_PRIVATE_KEY  — alias for WEB3_PRIVATE_KEY (legacy, fallback)
 
-The contract is expected to expose at minimum:
+The contract exposes:
   function cancelDelivery(string calldata deviceId) external
+  function submitTrackerState(uint256 shipmentId, bool isGood, string calldata telemetryProof) external
 """
 import logging
 import os
@@ -30,6 +32,23 @@ _CANCEL_DELIVERY_ABI = [
         "type": "function",
     }
 ]
+
+_SUBMIT_TRACKER_STATE_ABI = [
+    {
+        "inputs": [
+            {"internalType": "uint256", "name": "shipmentId", "type": "uint256"},
+            {"internalType": "bool", "name": "isGood", "type": "bool"},
+            {"internalType": "string", "name": "telemetryProof", "type": "string"},
+        ],
+        "name": "submitTrackerState",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function",
+    }
+]
+
+# Combined ABI used for the ColdChainShipment contract
+_CONTRACT_ABI = _CANCEL_DELIVERY_ABI + _SUBMIT_TRACKER_STATE_ABI
 
 # ---------------------------------------------------------------------------
 # Lazy singleton — built once on first call, reused afterwards
@@ -64,7 +83,7 @@ async def trigger_contract_refund(device_id: str) -> str | None:
     """
     rpc_url = os.environ.get("WEB3_RPC_URL")
     contract_address = os.environ.get("CONTRACT_ADDRESS")
-    private_key = os.environ.get("SERVER_PRIVATE_KEY")
+    private_key = os.environ.get("WEB3_PRIVATE_KEY") or os.environ.get("SERVER_PRIVATE_KEY")
 
     if not rpc_url or not contract_address or not private_key:
         logger.warning(
@@ -77,7 +96,7 @@ async def trigger_contract_refund(device_id: str) -> str | None:
         w3 = _get_web3()
 
         checksum_address = AsyncWeb3.to_checksum_address(contract_address)
-        contract = w3.eth.contract(address=checksum_address, abi=_CANCEL_DELIVERY_ABI)
+        contract = w3.eth.contract(address=checksum_address, abi=_CONTRACT_ABI)
 
         account = w3.eth.account.from_key(private_key)
         sender = account.address
@@ -106,6 +125,79 @@ async def trigger_contract_refund(device_id: str) -> str | None:
         logger.error(
             "Failed to trigger contract refund for device %s: %s",
             device_id,
+            exc,
+            exc_info=True,
+        )
+        return None
+
+
+async def submit_tracker_state(
+    shipment_id: int,
+    is_good: bool,
+    telemetry_proof: str,
+) -> str | None:
+    """
+    Call submitTrackerState(shipmentId, isGood, telemetryProof) on the
+    ColdChainShipment contract.
+
+    Returns the transaction hash on success, or None when env vars are
+    missing (dev mode) or a recoverable error occurs.
+
+    Errors are logged and swallowed so a single RPC hiccup does not crash
+    the background task and delay the HTTP response.
+    """
+    rpc_url = os.environ.get("WEB3_RPC_URL")
+    contract_address = os.environ.get("CONTRACT_ADDRESS")
+    private_key = os.environ.get("WEB3_PRIVATE_KEY") or os.environ.get("SERVER_PRIVATE_KEY")
+
+    if not rpc_url or not contract_address or not private_key:
+        logger.warning(
+            "Web3 environment variables not configured — skipping submitTrackerState "
+            "(shipmentId=%s, isGood=%s)",
+            shipment_id,
+            is_good,
+        )
+        return None
+
+    try:
+        w3 = _get_web3()
+
+        checksum_address = AsyncWeb3.to_checksum_address(contract_address)
+        contract = w3.eth.contract(address=checksum_address, abi=_CONTRACT_ABI)
+
+        account = w3.eth.account.from_key(private_key)
+        sender = account.address
+
+        nonce = await w3.eth.get_transaction_count(sender)
+        gas_price = await w3.eth.gas_price
+
+        tx = await contract.functions.submitTrackerState(
+            shipment_id, is_good, telemetry_proof
+        ).build_transaction(
+            {
+                "from": sender,
+                "nonce": nonce,
+                "gasPrice": gas_price,
+            }
+        )
+
+        signed = account.sign_transaction(tx)
+        tx_hash = await w3.eth.send_raw_transaction(signed.raw_transaction)
+        hex_hash = tx_hash.hex()
+
+        logger.info(
+            "submitTrackerState sent — shipmentId=%s isGood=%s tx=%s",
+            shipment_id,
+            is_good,
+            hex_hash,
+        )
+        return hex_hash
+
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "submitTrackerState failed — shipmentId=%s isGood=%s: %s",
+            shipment_id,
+            is_good,
             exc,
             exc_info=True,
         )
