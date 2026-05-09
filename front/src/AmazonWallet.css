@@ -198,3 +198,37 @@ body {
     color: #0f1111;
     margin-bottom: 15px;
 }
+
+.conditions-container {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    margin-top: 10px;
+}
+
+.condition-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    max-width: 350px;
+}
+
+.condition-item label {
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.amazon-number-input {
+    width: 100px;
+    padding: 7px 10px;
+    border: 1px solid #d5d9d9;
+    border-radius: 4px;
+    font-size: 14px;
+    outline: none;
+    box-shadow: 0 1px 2px rgba(15, 17, 17, .15) inset;
+}
+
+.amazon-number-input:focus {
+    border-color: #007185;
+    box-shadow: 0 0 0 3px #c8f3f9;
+}

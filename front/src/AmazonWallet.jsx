@@ -33,6 +33,26 @@ const AmazonWallet = () => {
 
                     <div className="checkout-card">
                         <h2>Conditions</h2>
+                        <div className="conditions-container">
+                            <div className="condition-item">
+                                <label>Temperature (°C)</label>
+                                <input
+                                    type="number"
+                                    className="amazon-number-input"
+                                    placeholder="22.5"
+                                    step="0.1"
+                                />
+                            </div>
+                            <div className="condition-item">
+                                <label>Acceleration Overload</label>
+                                <input
+                                    type="number"
+                                    className="amazon-number-input"
+                                    placeholder="3.067"
+                                    step="0.001"
+                                />
+                            </div>
+                        </div>
                     </div>
 
                     <div className="checkout-card">
@@ -47,11 +67,8 @@ const AmazonWallet = () => {
                 <aside className="checkout-right-col">
                     <div className="summary-card">
                         <button className="btn-primary-action">Deliver to this address</button>
-
                         <hr className="summary-divider" />
-
                         <h3 style={{ fontSize: '16px', margin: '0 0 15px 0' }}>Order Summary</h3>
-
                         <div className="summary-row">
                             <span>Items:</span>
                             <span>--</span>
@@ -64,9 +81,7 @@ const AmazonWallet = () => {
                             <span>Estimated tax to be collected:</span>
                             <span>--</span>
                         </div>
-
                         <hr className="summary-divider" />
-
                         <div className="summary-row total">
                             <span>Order total:</span>
                             <span>$0.00</span>
