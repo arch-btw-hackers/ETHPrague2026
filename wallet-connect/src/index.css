@@ -1,0 +1,100 @@
+:root {
+  /* Vercel Light Palette */
+  --text: #666666;
+  --text-h: #000000;
+  --bg: #ffffff;
+  --border: #eaeaea;
+  --code-bg: #fafafa;
+  --accent: #000000;
+  --accent-text: #ffffff;
+  --shadow: 0 5px 10px rgba(0, 0, 0, 0.12);
+
+  /* Radii */
+  --radius: 8px;
+
+  /* Typography */
+  --sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --mono: 'Geist Mono', ui-monospace, monospace;
+
+  font: 16px/1.5 var(--sans);
+  letter-spacing: -0.02em;
+  /* Tighter tracking for that Vercel look */
+  color-scheme: light dark;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text: #888888;
+    --text-h: #ffffff;
+    --bg: #000000;
+    --border: #333333;
+    --code-bg: #111111;
+    --accent: #ffffff;
+    --accent-text: #000000;
+    --shadow: 0 0 0 1px #333;
+  }
+}
+
+body {
+  margin: 0;
+  padding: 0;
+}
+
+#root {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+/* Container for the "Center" content */
+#center {
+  padding: 40px;
+  text-align: center;
+}
+
+h1 {
+  font-size: 64px;
+  font-weight: 800;
+  letter-spacing: -0.05em;
+  /* Very tight spacing */
+  color: var(--text-h);
+  margin-bottom: 24px;
+}
+
+/* Vercel-style Button override for your .counter class */
+.counter {
+  background: var(--accent);
+  color: var(--accent-text);
+  border: 1px solid var(--accent);
+  padding: 10px 24px;
+  border-radius: var(--radius);
+  font-weight: 500;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: var(--shadow);
+}
+
+.counter:hover {
+  background: transparent;
+  color: var(--accent);
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  background: var(--code-bg);
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-h);
+}
