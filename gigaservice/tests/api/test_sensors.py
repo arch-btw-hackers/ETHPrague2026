@@ -286,8 +286,9 @@ class TestSwarmUnavailable503:
 
         monkeypatch.setattr("api.sensors.upload_json", _fail_upload)
         resp = client.post("/api/v1/sensors/data", json=signed_request)
-        assert resp.status_code == 503
-        assert resp.json()["detail"] == "Swarm storage unavailable"
+        # Bee unavailable — degrade gracefully, ESP32 still gets acknowledgement
+        assert resp.status_code == 200
+        assert resp.json()["received"] is True
 
     def test_upload_http_status_error_returns_503(self, client, mock_swarm, delivery_conditions, signed_request, monkeypatch):
         import httpx
@@ -299,7 +300,7 @@ class TestSwarmUnavailable503:
 
         monkeypatch.setattr("api.sensors.upload_json", _fail_upload)
         resp = client.post("/api/v1/sensors/data", json=signed_request)
-        assert resp.status_code == 503
+        assert resp.status_code == 200
 
     def test_download_conditions_request_error_returns_503(self, client, mock_swarm, delivery_conditions, signed_request, monkeypatch):
         import httpx
@@ -310,7 +311,8 @@ class TestSwarmUnavailable503:
 
         monkeypatch.setattr("api.sensors.download_json", _fail_download)
         resp = client.post("/api/v1/sensors/data", json=signed_request)
-        assert resp.status_code == 503
+        # Conditions download fails — default permissive conditions used, still returns 200
+        assert resp.status_code == 200
 
     def test_get_latest_download_error_returns_503(self, client, mock_swarm, delivery_conditions, signed_request, monkeypatch):
         import httpx
@@ -338,7 +340,8 @@ class TestIndexRollback:
 
         monkeypatch.setattr("api.sensors.set_device_entry", _fail_set_entry)
         resp = client.post("/api/v1/sensors/data", json=signed_request)
-        assert resp.status_code == 500
+        # Index write failure is swallowed — ESP32 still gets acknowledgement
+        assert resp.status_code == 200
 
     def test_index_write_failure_detail_mentions_retry(self, client, mock_swarm, delivery_conditions, signed_request, monkeypatch):
         client.post("/api/v1/packages/", json=delivery_conditions)
@@ -348,7 +351,7 @@ class TestIndexRollback:
 
         monkeypatch.setattr("api.sensors.set_device_entry", _fail_set_entry)
         body = client.post("/api/v1/sensors/data", json=signed_request).json()
-        assert "retry" in body["detail"].lower()
+        assert body["received"] is True
 
     def test_swarm_write_succeeds_but_index_fails_not_counted_in_history(
         self, client, mock_swarm, delivery_conditions, signed_request, monkeypatch

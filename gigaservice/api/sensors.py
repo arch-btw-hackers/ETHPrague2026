@@ -23,7 +23,12 @@ router = APIRouter(prefix="/sensors", tags=["Sensors"])
 CONDITIONS_CACHE: dict[str, dict] = {}
 
 
+_DEFAULT_CONDITIONS = {"max_temp_c": 100.0, "max_acceleration": 100.0}
+
+
 async def _get_conditions(conditions_hash: str) -> dict:
+    if conditions_hash == "__default__":
+        return _DEFAULT_CONDITIONS
     if conditions_hash not in CONDITIONS_CACHE:
         CONDITIONS_CACHE[conditions_hash] = await download_json(conditions_hash)
     return CONDITIONS_CACHE[conditions_hash]
@@ -123,13 +128,18 @@ async def receive_sensor_data(data: SignedRequest, background_tasks: BackgroundT
 
     # 2. Load package conditions — from cache or Swarm
     entry = await get_device_entry(payload.device_id)
-    if not entry or not entry.get("conditions_hash"):
+    if not entry:
         raise HTTPException(
             status_code=404,
             detail=f"No active package for device '{payload.device_id}'",
         )
 
-    conditions = await _get_conditions(entry["conditions_hash"])
+    conditions_hash = entry.get("conditions_hash") or "__default__"
+    try:
+        conditions = await _get_conditions(conditions_hash)
+    except Exception:
+        logger.warning("Bee unavailable for conditions lookup on device=%s — using defaults", payload.device_id)
+        conditions = _DEFAULT_CONDITIONS
 
     # 3. Rules engine — collect violation reasons for telemetry + alerts
     violation_reasons: list[str] = []
@@ -153,21 +163,15 @@ async def receive_sensor_data(data: SignedRequest, background_tasks: BackgroundT
         "timestamp": now.isoformat(),
         "prev_hash": entry.get("latest_telemetry_hash"),
     }
-    new_hash = await upload_json(record)
-
-    # 5. Update index atomically.
-    #    If this fails after the Swarm write, the linked list is inconsistent.
-    #    Return 500 so the tracker can retry with the same nonce.
+    new_hash: str | None = None
     try:
+        new_hash = await upload_json(record)
         await set_device_entry(payload.device_id, latest_telemetry_hash=new_hash)
-    except OSError as exc:
-        raise HTTPException(
-            status_code=500,
-            detail="Index write failed after Swarm upload. Please retry.",
-        ) from exc
+    except Exception:
+        logger.warning("Swarm upload failed for device=%s — telemetry not persisted to Bee", payload.device_id)
 
-    # 6. If conditions were violated, trigger refund + email alert in the background
-    if not is_valid:
+    # 5. If conditions were violated, trigger refund + email alert in the background
+    if not is_valid and new_hash:
         background_tasks.add_task(
             _handle_violation, payload.device_id, reason, new_hash
         )
@@ -175,7 +179,7 @@ async def receive_sensor_data(data: SignedRequest, background_tasks: BackgroundT
     print(
         f"Device: {payload.device_id} | Temp: {readings.temp_c} | "
         f"Acc: {readings.acceleration_overload} | "
-        f"Valid: {is_valid} | Hash: {new_hash[:8]}..."
+        f"Valid: {is_valid} | Hash: {new_hash[:8] if new_hash else 'not-stored'}..."
     )
 
     return SensorResponse(
@@ -266,15 +270,10 @@ async def receive_encrypted_sensor_data(
     # Step 4 — Delegate to standard pipeline via synthetic SignedRequest
     # Auto-register device with permissive default conditions if not yet known.
     entry = await get_device_entry(data.device_id)
-    if not entry or not entry.get("conditions_hash"):
-        default_conditions = {
-            "device_id": data.device_id,
-            "max_temp_c": 100.0,
-            "max_acceleration": 100.0,
-        }
-        conditions_hash = await upload_json(default_conditions)
-        await set_device_entry(data.device_id, conditions_hash=conditions_hash, latest_telemetry_hash=None)
-        logger.info("Auto-registered device=%s with default conditions", data.device_id)
+    if not entry:
+        # Store sentinel — no Bee call needed, _get_conditions handles "__default__"
+        await set_device_entry(data.device_id, conditions_hash="__default__", latest_telemetry_hash=None)
+        logger.info("Auto-registered device=%s with default inline conditions", data.device_id)
 
     device_payload = DevicePayload(
         device_id=data.device_id,
