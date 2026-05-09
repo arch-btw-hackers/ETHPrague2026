@@ -145,8 +145,8 @@ async def verify_spacecomputer_signature(payload: dict, signature: str) -> bool:
 
     if recovered is None:
         logger.warning(
-            "EIP-191 recovery failed for device=%s (tried %d candidate(s), sig_len=%d)",
-            device_id, len(candidates), len(sig),
+            "EIP-191 recovery failed for device=%s (tried %d candidate(s), sig_len=%d, sig_value=%r)",
+            device_id, len(candidates), len(sig), sig[:120],
         )
         return False
 

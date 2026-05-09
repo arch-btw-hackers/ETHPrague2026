@@ -111,7 +111,8 @@ _rsa_private_key: rsa.RSAPrivateKey | None = None
 _rsa_public_key: rsa.RSAPublicKey | None = None
 
 
-_RSA_KEY_FILE = pathlib.Path("/tmp/gigaservice_rsa_key.pem")
+_RSA_KEY_FILE = pathlib.Path("/data/gigaservice_rsa_key.pem")
+_RSA_KEY_FILE_FALLBACK = pathlib.Path("/tmp/gigaservice_rsa_key.pem")
 
 
 def _load_or_generate_rsa_keys() -> None:
@@ -119,12 +120,9 @@ def _load_or_generate_rsa_keys() -> None:
 
     Priority:
       1. SERVER_RSA_PRIVATE_KEY env var (production)
-      2. /tmp/gigaservice_rsa_key.pem (persisted across restarts within the same container)
-      3. Generate a new pair and save it to the file above
-
-    The generated pair is reused across process restarts as long as the
-    container (and its /tmp) is alive. Set SERVER_RSA_PRIVATE_KEY in
-    production to keep a stable identity across container recreations.
+      2. /data/gigaservice_rsa_key.pem  (Docker volume — survives container recreations)
+      3. /tmp/gigaservice_rsa_key.pem   (legacy path, survives uvicorn restarts only)
+      4. Generate a new pair and save it to /data (or /tmp as fallback)
     """
     global _rsa_private_key, _rsa_public_key
 
@@ -137,20 +135,21 @@ def _load_or_generate_rsa_keys() -> None:
         logger.info("RSA keys loaded from environment variables")
         return
 
-    if _RSA_KEY_FILE.exists():
-        try:
-            _rsa_private_key = serialization.load_pem_private_key(
-                _RSA_KEY_FILE.read_bytes(), password=None
-            )
-            _rsa_public_key = _rsa_private_key.public_key()
-            logger.info("RSA keys loaded from %s", _RSA_KEY_FILE)
-            return
-        except Exception:
-            logger.warning("Failed to load RSA key from %s — regenerating", _RSA_KEY_FILE)
+    for candidate in (_RSA_KEY_FILE, _RSA_KEY_FILE_FALLBACK):
+        if candidate.exists():
+            try:
+                _rsa_private_key = serialization.load_pem_private_key(
+                    candidate.read_bytes(), password=None
+                )
+                _rsa_public_key = _rsa_private_key.public_key()
+                logger.info("RSA keys loaded from %s", candidate)
+                return
+            except Exception:
+                logger.warning("Failed to load RSA key from %s — trying next", candidate)
 
     logger.warning(
         "SERVER_RSA_PRIVATE_KEY / SERVER_RSA_PUBLIC_KEY not set — "
-        "generating ephemeral RSA-2048 key pair (dev mode)"
+        "generating RSA-2048 key pair"
     )
     _rsa_private_key = rsa.generate_private_key(
         public_exponent=65537,
@@ -158,17 +157,19 @@ def _load_or_generate_rsa_keys() -> None:
     )
     _rsa_public_key = _rsa_private_key.public_key()
 
-    try:
-        _RSA_KEY_FILE.write_bytes(
-            _rsa_private_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.TraditionalOpenSSL,
-                encryption_algorithm=serialization.NoEncryption(),
-            )
-        )
-        logger.info("RSA key pair persisted to %s", _RSA_KEY_FILE)
-    except Exception:
-        logger.warning("Could not persist RSA key to %s", _RSA_KEY_FILE)
+    key_pem = _rsa_private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    for target in (_RSA_KEY_FILE, _RSA_KEY_FILE_FALLBACK):
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(key_pem)
+            logger.info("RSA key pair persisted to %s (survives container recreations)", target)
+            break
+        except Exception as exc:
+            logger.warning("Could not persist RSA key to %s: %s", target, exc)
 
 
 def get_server_public_key_pem() -> str:
