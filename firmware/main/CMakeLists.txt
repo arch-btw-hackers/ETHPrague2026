@@ -9,7 +9,7 @@ if(EXISTS ${ENV_FILE})
     endforeach()
 endif()
 
-idf_component_register(SRCS "main.c" "sensor.c" "wifi.c" "beacon.c" "auth.c" "kms.c" "time_sync.c"
+idf_component_register(SRCS "main.c" "sensor.c" "wifi.c" "beacon.c" "auth.c" "kms.c" "time_sync.c" "client.c"
                        INCLUDE_DIRS ".")
 
 # Pass .env values as compile definitions

@@ -24,6 +24,7 @@
 #include "auth.h"
 #include "kms.h"
 #include "time_sync.h"
+#include "client.h"
 
 static const char *TAG = "MAIN";
 
@@ -80,6 +81,14 @@ static void print_report(void)
     printf("}\n");
 
     ESP_LOGI(TAG, "Report: peak=%.3fG temp=%.1f°C", peak, temp);
+
+    /* Encrypt and send to server */
+    char full_json[2048];
+    snprintf(full_json, sizeof(full_json), 
+        "{\"device_id\":\"%s\",\"nonce\":\"%s\",\"readings\":{\"temp_c\":%.1f,\"acceleration_overload\":%.3f},\"signature\":\"%s\"}",
+        DEVICE_ID, nonce, temp, peak, signature);
+
+    client_send_encrypted(full_json);
 }
 
 /* Sampling task — runs continuously, silently feeds peak tracker */
@@ -136,6 +145,11 @@ void app_main(void)
         ESP_LOGI(TAG, "KMS Key ready");
     } else {
         ESP_LOGE(TAG, "Failed to get/create KMS key");
+    }
+
+    /* 4.6 Fetch Server Public Key */
+    if (client_fetch_pubkey() != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to fetch server public key, encryption will fail.");
     }
 
     /* 5. Start sampling task – pinned to core 1 (WiFi on core 0) */
