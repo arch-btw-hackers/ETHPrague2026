@@ -1,0 +1,206 @@
+:root {
+    background-color: #f9fbfd;
+    color: #212121;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    font-family: "Roboto", "Helvetica", "Arial", sans-serif;
+    background: #ffffff url("data:image/svg+xml,%3Csvg width='375' height='812' viewBox='0 0 375 812' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='375' height='812' fill='%23F9FBFD'/%3E%3Ccircle r='375' fill='url(%23p0)'/%3E%3Cdefs%3E%3CradialGradient id='p0' cx='0' cy='0' r='1' gradientUnits='userSpaceOnUse' gradientTransform='rotate(90) scale(375)'%3E%3Cstop stop-color='%23BFDAEE' stop-opacity='0.5'/%3E%3Cstop offset='1' stop-color='%23BFDAEE' stop-opacity='0'/%3E%3C/radialGradient%3E%3C/defs%3E%3C/svg%3E");
+    background-size: cover;
+    background-attachment: fixed;
+}
+
+.header-alz-9u9iou-10 {
+    background: #ffffff;
+    border-bottom: 1px solid #e0e0e0;
+    width: 100%;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.header-alz-8v7ev0-11 {
+    max-width: 1310px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    height: 100px;
+    padding: 0 16px;
+    box-sizing: border-box;
+}
+
+.header-alz-71zeas-15 {
+    margin-right: 20px;
+}
+
+.header-alz-fzim95-17 {
+    flex: 1;
+    max-width: 580px;
+    background-color: #ecf5fe;
+    border-radius: 4px;
+    padding: 4px;
+    display: flex;
+}
+
+.header-alz-9t7adh-45 {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    background: #fff;
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.header-alz-xigua8-53 {
+    flex: 1;
+    border: 1px solid #e0e0e0;
+    height: 42px;
+    padding: 0 15px 0 45px;
+    font-size: 14px;
+    outline: none;
+    border-radius: 4px 0 0 4px;
+}
+
+.header-search-icon-inside {
+    position: absolute;
+    left: 20px;
+    color: #1653A4;
+    font-size: 18px;
+}
+
+.header-alz-14zbaw-58.blue {
+    background-color: #0094E7;
+    color: #fff;
+    border: none;
+    height: 42px;
+    padding: 0 25px;
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.header-right-side {
+    display: flex;
+    align-items: center;
+    margin-left: auto;
+    gap: 15px;
+}
+
+.header-alz-xafhyl-61 {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px;
+    cursor: pointer;
+    text-decoration: none;
+    color: inherit;
+}
+
+.header-alz-wnfgr4-68 {
+    width: 32px;
+    height: 32px;
+    background: #e0e0e0;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.header-alz-9seg3b-63 {
+    display: flex;
+    flex-direction: column;
+}
+
+.header-alz-lswn9v-64 {
+    font-weight: bold;
+    color: #00275B;
+    font-size: 13px;
+}
+
+.header-alz-uyx6yg-67 {
+    color: #00275B;
+    font-size: 12px;
+}
+
+.header-alz-iyrci5-24 {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 0 15px;
+    position: relative;
+}
+
+.header-alz-iyrci5-24::before {
+    content: '';
+    width: 1px;
+    height: 24px;
+    background: #e0e0e0;
+}
+
+.header-icon-link {
+    color: #00275B;
+    font-size: 24px;
+    display: flex;
+    align-items: center;
+    text-decoration: none;
+}
+
+.header-alz-ykjmzy-119 {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 1px solid #e0e0e0;
+}
+
+.main-card {
+    max-width: 1310px;
+    margin: 20px auto;
+    background: #ffffff;
+    border-radius: 4px;
+    box-shadow: 0px 4px 15px rgba(20, 69, 84, 0.06);
+    min-height: 500px;
+    border-top: 4px solid #00275B;
+}
+
+.order-nav {
+    display: flex;
+    padding: 20px 30px;
+    border-bottom: 1px solid #efefef;
+    align-items: center;
+    gap: 15px;
+}
+
+.order1-alz-oe88l6-44 {
+    width: 32px;
+    height: 32px;
+    background: #c6c6c6;
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+}
+
+.order1-alz-tzaf2l-45 {
+    background: #0094E7;
+}
+
+.empty-cart-box {
+    display: flex;
+    align-items: center;
+    background: #f1f8fc;
+    margin: 30px;
+    padding: 20px 30px;
+    border-radius: 4px;
+}
+
+.charity-section {
+    float: right;
+    width: 350px;
+    background: #f8f8f8;
+    margin: 30px;
+    padding: 20px;
+    border-radius: 4px;
+}
