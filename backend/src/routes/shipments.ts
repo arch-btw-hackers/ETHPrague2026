@@ -70,8 +70,51 @@ shipmentsRouter.post("/:code/judge", async (req, res) => {
   });
   if (!shipment) return res.status(404).json({ error: "NOT_FOUND" });
   const verdict = await reviewRefund(shipment.id);
-  if (!verdict) return res.status(409).json({ error: "NO_REFUND_PREPARED" });
-  res.json(verdict);
+  if (!verdict) {
+    // No refund staged yet — synthesise a "preview" verdict from current
+    // telemetry so the operator gets actionable feedback either way.
+    const insight = await getInsight(shipment.id, false);
+    const approve = insight.riskScore >= 60;
+    const result = {
+      verdict: approve ? "APPROVE" : "REJECT",
+      rationale: approve
+        ? `Risk score ${insight.riskScore} indicates breach probability. Refund recommended.`
+        : `Risk score ${insight.riskScore}. Telemetry within bounds — no refund warranted.`,
+      preview: true,
+    };
+    await prisma.event.create({
+      data: {
+        shipmentId: shipment.id,
+        kind: "JUDGE_VERDICT",
+        message: `Supreme Judge (preview): ${result.verdict}`,
+        meta: { rationale: result.rationale, preview: true },
+      },
+    });
+    return res.json(result);
+  }
+  res.json({ ...verdict, rationale: verdict.notes });
+});
+
+// POST /api/shipments/:code/dispute — operator-initiated dispute.
+shipmentsRouter.post("/:code/dispute", async (req, res) => {
+  const shipment = await prisma.shipment.findUnique({
+    where: { trackingCode: req.params.code },
+  });
+  if (!shipment) return res.status(404).json({ error: "NOT_FOUND" });
+  const reason = String(req.body?.reason ?? "Operator-filed dispute").slice(0, 240);
+  await prisma.event.create({
+    data: {
+      shipmentId: shipment.id,
+      kind: "DISPUTE_FILED",
+      message: `Dispute filed by operator: ${reason}`,
+      meta: { reason, source: "operator" },
+    },
+  });
+  res.json({
+    ok: true,
+    rationale:
+      "Dispute logged on the audit chain. Arbitrator will cross-check telemetry on next tick.",
+  });
 });
 
 // AI Insights — cached for 30s, force=1 forces a refresh.

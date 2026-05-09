@@ -117,42 +117,44 @@ export async function renderReport(shipmentId: string): Promise<Buffer> {
 
   const PAGE_W = doc.page.width;
   const MARGIN = 56;
+  const CONTENT_W = PAGE_W - MARGIN * 2;
+  // Helvetica's WinAnsi cannot render U+2192. Use a plain ASCII arrow.
+  const ARROW = "  >  ";
 
   // ---------- Header band ----------
-  doc.rect(0, 0, PAGE_W, 96).fill("#050708");
-  doc.save().translate(MARGIN, 24);
-  // Ethereum mark, scaled.
-  doc.save().scale(0.5);
+  const HEADER_H = 110;
+  doc.rect(0, 0, PAGE_W, HEADER_H).fill("#050708");
+
+  // Ethereum mark — drawn at fixed pixel coords inside the band.
+  doc.save().translate(MARGIN, 26).scale(0.55);
   doc.fillColor("#7B8CFF").path(ETH_PATH_TOP).fill();
   doc.fillColor("#A4B0FF").path(ETH_PATH_BOTTOM).fill();
   doc.restore();
-  doc.fillColor("#E6E9EF").font("Helvetica-Bold").fontSize(11)
-    .text("VIBETRACK", 56, 18, { characterSpacing: 4 });
+
+  doc.fillColor("#E6E9EF").font("Helvetica-Bold").fontSize(13)
+    .text("VIBETRACK", MARGIN + 60, 36, { characterSpacing: 4 });
   doc.fillColor("#7A8190").font("Helvetica").fontSize(8)
-    .text("INTELLIGENCE HUB · FORENSIC LOGISTICS REPORT", 56, 34, {
+    .text("INTELLIGENCE HUB . FORENSIC LOGISTICS REPORT", MARGIN + 60, 56, {
       characterSpacing: 2,
     });
-  doc.restore();
-
-  doc.fillColor("#7A8190").font("Helvetica").fontSize(8)
-    .text(`Generated ${new Date().toUTCString()}`, MARGIN, 64, {
+  doc.fillColor("#5C6373").font("Helvetica").fontSize(7.5)
+    .text(`Generated ${new Date().toUTCString()}`, MARGIN + 60, 72, {
       characterSpacing: 1,
     });
 
   // ---------- Title ----------
-  doc.fillColor("#0B0D10");
-  let y = 128;
-  doc.font("Helvetica").fontSize(9).fillColor("#9099AA")
+  let y = HEADER_H + 36;
+  doc.font("Helvetica").fontSize(8).fillColor("#9099AA")
     .text("CASE", MARGIN, y, { characterSpacing: 3 });
   y += 14;
-  doc.font("Helvetica-Bold").fontSize(22).fillColor("#0B0D10")
-    .text(`${shipment.trackingCode} — ${shipment.asset}`, MARGIN, y, {
-      width: PAGE_W - MARGIN * 2,
+  doc.font("Helvetica-Bold").fontSize(20).fillColor("#0B0D10")
+    .text(`${shipment.trackingCode}  ${shipment.asset}`, MARGIN, y, {
+      width: CONTENT_W,
     });
-  y = doc.y + 8;
+  y = doc.y + 6;
   doc.font("Helvetica").fontSize(10).fillColor("#4A5160")
-    .text(`${shipment.origin}  →  ${shipment.destination}`, MARGIN, y);
-  y = doc.y + 18;
+    .text(`${shipment.origin}${ARROW}${shipment.destination}`, MARGIN, y);
+  y = doc.y + 24;
 
   // ---------- Verdict box ----------
   const verdictColor =
@@ -163,26 +165,40 @@ export async function renderReport(shipmentId: string): Promise<Buffer> {
       : insight.riskLabel === "MODERATE"
       ? "#0E7C7B"
       : "#1F8A4C";
-  doc.roundedRect(MARGIN, y, PAGE_W - MARGIN * 2, 76, 8)
+  const VERDICT_H = 88;
+  doc.roundedRect(MARGIN, y, CONTENT_W, VERDICT_H, 10)
     .lineWidth(0.5).strokeColor("#D7DBE2").fillAndStroke("#FAFBFC", "#D7DBE2");
-  doc.fillColor("#9099AA").font("Helvetica").fontSize(8)
-    .text("RISK SCORE", MARGIN + 16, y + 14, { characterSpacing: 3 });
-  doc.fillColor(verdictColor).font("Helvetica-Bold").fontSize(34)
-    .text(`${insight.riskScore.toFixed(0)}`, MARGIN + 16, y + 28);
-  doc.fillColor("#9099AA").font("Helvetica").fontSize(8)
-    .text("STATUS", MARGIN + 130, y + 14, { characterSpacing: 3 });
-  doc.fillColor(verdictColor).font("Helvetica-Bold").fontSize(14)
-    .text(insight.riskLabel, MARGIN + 130, y + 32);
-  doc.fillColor("#9099AA").font("Helvetica").fontSize(8)
-    .text("HEADLINE", MARGIN + 240, y + 14, { characterSpacing: 3 });
-  doc.fillColor("#0B0D10").font("Helvetica-Bold").fontSize(11)
-    .text(insight.headline, MARGIN + 240, y + 30, {
-      width: PAGE_W - MARGIN - 240 - 16,
-    });
-  y += 96;
 
-  // ---------- Telemetry stats ----------
-  const last = shipment.telemetries[shipment.telemetries.length - 1];
+  // Three columns: Score | Status | Headline
+  const col1 = MARGIN + 20;
+  const col2 = MARGIN + 140;
+  const col3 = MARGIN + 260;
+  const labelY = y + 16;
+  const valueY = y + 32;
+
+  doc.fillColor("#9099AA").font("Helvetica").fontSize(7.5)
+    .text("RISK SCORE", col1, labelY, { characterSpacing: 3 });
+  doc.fillColor(verdictColor).font("Helvetica-Bold").fontSize(34)
+    .text(`${insight.riskScore.toFixed(0)}`, col1, valueY);
+
+  doc.fillColor("#9099AA").font("Helvetica").fontSize(7.5)
+    .text("STATUS", col2, labelY, { characterSpacing: 3 });
+  doc.fillColor(verdictColor).font("Helvetica-Bold").fontSize(15)
+    .text(insight.riskLabel, col2, valueY + 8);
+
+  doc.fillColor("#9099AA").font("Helvetica").fontSize(7.5)
+    .text("HEADLINE", col3, labelY, { characterSpacing: 3 });
+  doc.fillColor("#0B0D10").font("Helvetica-Bold").fontSize(11)
+    .text(insight.headline, col3, valueY + 4, {
+      width: PAGE_W - MARGIN - col3,
+      ellipsis: true,
+      height: 44,
+    });
+
+  y += VERDICT_H + 28;
+
+  // ---------- Telemetry envelope ----------
+  const last = shipment.telemetries[0]; // already DESC ordered by query
   const tempVals = shipment.telemetries.map((t) => t.tempC);
   const shockVals = shipment.telemetries.map((t) => t.shockG);
   const stat = (vals: number[]) => ({
@@ -193,90 +209,129 @@ export async function renderReport(shipmentId: string): Promise<Buffer> {
   const tStat = stat(tempVals);
   const gStat = stat(shockVals);
 
-  drawSectionLabel(doc, "TELEMETRY ENVELOPE", MARGIN, y);
-  y += 22;
-  drawKV(doc, "Samples", `${shipment.telemetries.length}`, MARGIN, y);
-  drawKV(doc, "Temp", `min ${tStat.min.toFixed(1)} · avg ${tStat.avg.toFixed(1)} · max ${tStat.max.toFixed(1)} °C`, MARGIN + 140, y);
-  y += 16;
-  drawKV(doc, "Threshold", `${shipment.maxTempC}°C max`, MARGIN, y);
-  drawKV(doc, "Shock", `min ${gStat.min.toFixed(2)} · avg ${gStat.avg.toFixed(2)} · max ${gStat.max.toFixed(2)} G`, MARGIN + 140, y);
-  y += 16;
+  y = drawSectionLabel(doc, "TELEMETRY ENVELOPE", MARGIN, y) + 12;
+
+  // Two-column grid, generous row height
+  const ROW = 30;
+  const colA = MARGIN;
+  const colB = MARGIN + CONTENT_W / 2;
+
+  drawKV(doc, "Samples", `${shipment.telemetries.length}`, colA, y);
+  drawKV(
+    doc,
+    "Temperature",
+    `min ${tStat.min.toFixed(1)} . avg ${tStat.avg.toFixed(1)} . max ${tStat.max.toFixed(1)} C`,
+    colB,
+    y
+  );
+  y += ROW;
+
+  drawKV(doc, "Threshold", `${shipment.maxTempC} C max  /  ${shipment.maxShockG} G max`, colA, y);
+  drawKV(
+    doc,
+    "Shock",
+    `min ${gStat.min.toFixed(2)} . avg ${gStat.avg.toFixed(2)} . max ${gStat.max.toFixed(2)} G`,
+    colB,
+    y
+  );
+  y += ROW;
+
   if (last) {
     drawKV(
       doc,
       "Last sample",
-      `${new Date(last.recordedAt).toUTCString()}  ·  ${last.lat?.toFixed(4)}, ${last.lng?.toFixed(4)}`,
-      MARGIN,
-      y
+      `${new Date(last.recordedAt).toUTCString()}   ${last.lat?.toFixed(4)}, ${last.lng?.toFixed(4)}`,
+      colA,
+      y,
+      CONTENT_W
     );
-    y += 18;
+    y += ROW;
   }
 
-  // ---------- AI summary ----------
-  y += 8;
-  drawSectionLabel(doc, "EXECUTIVE SUMMARY", MARGIN, y);
-  y += 22;
+  y += 6;
+
+  // ---------- AI Executive Summary ----------
+  y = drawSectionLabel(doc, "EXECUTIVE SUMMARY", MARGIN, y) + 12;
   doc.fillColor("#0B0D10").font("Helvetica").fontSize(11)
-    .text(insight.summary || "—", MARGIN, y, {
-      width: PAGE_W - MARGIN * 2,
+    .text(insight.summary || "No summary generated.", MARGIN, y, {
+      width: CONTENT_W,
       lineGap: 3,
     });
-  y = doc.y + 14;
+  y = doc.y + 18;
 
+  // ---------- Anomalies / Recommendations ----------
   if (insight.anomalies.length) {
-    drawSectionLabel(doc, "ANOMALIES", MARGIN, y);
-    y += 18;
+    y = drawSectionLabel(doc, "ANOMALIES", MARGIN, y) + 10;
     for (const a of insight.anomalies) {
-      doc.fillColor("#0B0D10").font("Helvetica").fontSize(10).text(`·  ${a}`, MARGIN + 6, y, {
-        width: PAGE_W - MARGIN * 2 - 6,
-      });
+      doc.fillColor("#0B0D10").font("Helvetica").fontSize(10)
+        .text(`-  ${a}`, MARGIN + 6, y, { width: CONTENT_W - 6 });
       y = doc.y + 4;
     }
-    y += 10;
+    y += 12;
   }
 
   if (insight.recommendations.length) {
-    drawSectionLabel(doc, "RECOMMENDED ACTIONS", MARGIN, y);
-    y += 18;
+    y = drawSectionLabel(doc, "RECOMMENDED ACTIONS", MARGIN, y) + 10;
     for (const a of insight.recommendations) {
-      doc.fillColor("#0B0D10").font("Helvetica").fontSize(10).text(`·  ${a}`, MARGIN + 6, y, {
-        width: PAGE_W - MARGIN * 2 - 6,
-      });
+      doc.fillColor("#0B0D10").font("Helvetica").fontSize(10)
+        .text(`-  ${a}`, MARGIN + 6, y, { width: CONTENT_W - 6 });
       y = doc.y + 4;
     }
-    y += 10;
+    y += 12;
   }
 
-  // ---------- Identity / contract ----------
-  drawSectionLabel(doc, "ON-CHAIN IDENTITY", MARGIN, y);
-  y += 22;
-  drawKV(doc, "Contract", shipment.contractAddress ?? "—", MARGIN, y); y += 16;
-  drawKV(doc, "Chain ID", String(shipment.chainId ?? "—"), MARGIN, y); y += 16;
-  drawKV(doc, "Payer", shipment.payerAddress ?? "—", MARGIN, y); y += 16;
-  drawKV(doc, "Carrier", shipment.carrierAddress ?? "—", MARGIN, y); y += 16;
+  // Page break if needed before identity section
+  if (y > doc.page.height - 220) {
+    doc.addPage();
+    y = MARGIN;
+  }
+
+  // ---------- On-chain identity ----------
+  y = drawSectionLabel(doc, "ON-CHAIN IDENTITY", MARGIN, y) + 12;
+  drawKV(doc, "Contract", shipment.contractAddress ?? "-", colA, y, CONTENT_W); y += ROW;
+  drawKV(doc, "Chain ID", String(shipment.chainId ?? "-"), colA, y); y += ROW;
+  drawKV(doc, "Payer", shipment.payerAddress ?? "-", colA, y, CONTENT_W); y += ROW;
+  drawKV(doc, "Carrier", shipment.carrierAddress ?? "-", colA, y, CONTENT_W);
 
   // ---------- Footer ----------
-  const footY = doc.page.height - 60;
+  const footY = doc.page.height - 56;
   doc.moveTo(MARGIN, footY).lineTo(PAGE_W - MARGIN, footY)
     .lineWidth(0.5).strokeColor("#E1E4EA").stroke();
-  doc.fillColor("#9099AA").font("Helvetica").fontSize(8)
-    .text(`Model ${insight.model}  ·  Forecast horizon ${insight.forecast.length} steps  ·  vibetrack.eth`,
-      MARGIN, footY + 10, { width: PAGE_W - MARGIN * 2, align: "center", characterSpacing: 2 });
+  doc.fillColor("#9099AA").font("Helvetica").fontSize(7.5)
+    .text(
+      `Model ${insight.model}   .   Forecast horizon ${insight.forecast.length} steps   .   vibetrack.eth`,
+      MARGIN,
+      footY + 10,
+      { width: CONTENT_W, align: "center", characterSpacing: 2 }
+    );
 
   doc.end();
   return done;
 }
 
-function drawSectionLabel(doc: PDFKit.PDFDocument, label: string, x: number, y: number) {
+function drawSectionLabel(
+  doc: PDFKit.PDFDocument,
+  label: string,
+  x: number,
+  y: number
+): number {
   doc.fillColor("#9099AA").font("Helvetica-Bold").fontSize(8)
     .text(label, x, y, { characterSpacing: 3 });
   doc.moveTo(x, y + 14).lineTo(x + 56, y + 14)
     .lineWidth(1).strokeColor("#0B0D10").stroke();
+  return y + 14;
 }
 
-function drawKV(doc: PDFKit.PDFDocument, k: string, v: string, x: number, y: number) {
-  doc.fillColor("#9099AA").font("Helvetica").fontSize(8)
+function drawKV(
+  doc: PDFKit.PDFDocument,
+  k: string,
+  v: string,
+  x: number,
+  y: number,
+  width = 240
+) {
+  doc.fillColor("#9099AA").font("Helvetica").fontSize(7.5)
     .text(k.toUpperCase(), x, y, { characterSpacing: 2 });
   doc.fillColor("#0B0D10").font("Helvetica").fontSize(10)
-    .text(v, x, y + 11, { width: 380 });
+    .text(v, x, y + 12, { width, ellipsis: true, height: 14 });
 }
