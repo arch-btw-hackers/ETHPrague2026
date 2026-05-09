@@ -90,11 +90,11 @@ export function SensorChart({
       {/* Header row: tiny label, big glowing readout. */}
       <div className="flex items-baseline justify-between gap-4">
         <div>
-          <div className="text-[10px] uppercase tracking-[0.28em] text-white/40">
+          <div className="text-[10px] uppercase tracking-[0.28em] text-white/65">
             {label}
           </div>
           {axisLabel && (
-            <div className="mt-1 font-mono text-[9px] uppercase tracking-[0.32em] text-white/25">
+            <div className="mt-1 font-mono text-[9px] uppercase tracking-[0.32em] text-white/45">
               y · {axisLabel}
             </div>
           )}
@@ -181,12 +181,12 @@ export function SensorChart({
               {forecastStartT && forecast.length > 0 && (
                 <ReferenceLine
                   x={forecastStartT}
-                  stroke="rgba(255,255,255,0.2)"
+                  stroke="rgba(255,255,255,0.28)"
                   strokeDasharray="2 4"
                   label={{
                     value: "now",
                     position: "top",
-                    fill: "rgba(255,255,255,0.32)",
+                    fill: "rgba(255,255,255,0.55)",
                     fontSize: 9,
                     letterSpacing: 2,
                   }}
@@ -220,11 +220,11 @@ export function SensorChart({
       </div>
 
       {/* Footer: minimal timeline axis. */}
-      <div className="mt-2 flex items-center justify-between font-mono text-[9px] uppercase tracking-[0.28em] text-white/25">
+      <div className="mt-2 flex items-center justify-between font-mono text-[9px] uppercase tracking-[0.28em] text-white/45">
         <span>timeline</span>
         <span>
           {startTs ? new Date(startTs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"}
-          <span className="mx-2 text-white/15">→</span>
+          <span className="mx-2 text-white/30">→</span>
           {forecast.length
             ? "+24m forecast"
             : endTs
