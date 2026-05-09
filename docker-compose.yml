@@ -26,6 +26,11 @@ services:
       - ./gigaservice/.env
     environment:
       - BEE_API_URL=http://bee:1633
+    volumes:
+      - gigaservice_data:/data
     depends_on:
       - bee
     restart: unless-stopped
+
+volumes:
+  gigaservice_data:
