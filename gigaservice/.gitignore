@@ -1,1 +1,5 @@
 redm.md
+.env
+__pycache__/
+*.pyc
+
