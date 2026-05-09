@@ -7,8 +7,8 @@ Environment variables (all required in production):
   WEB3_PRIVATE_KEY    — hex private key used to sign and pay for transactions
   SERVER_PRIVATE_KEY  — alias for WEB3_PRIVATE_KEY (legacy, fallback)
 
-The contract exposes:
-  function cancelDelivery(string calldata deviceId) external
+The ColdChainShipment contract (0x965CdD2a560bab50ce52A826d1431A488C9E9959) exposes:
+  function cancelShipment(uint256 shipmentId) external
   function submitTrackerState(uint256 shipmentId, bool isGood, string calldata telemetryProof) external
 """
 import logging
@@ -23,10 +23,10 @@ logger = logging.getLogger(__name__)
 # Minimal ABI — only the function we actually call
 # ---------------------------------------------------------------------------
 
-_CANCEL_DELIVERY_ABI = [
+_CANCEL_SHIPMENT_ABI = [
     {
-        "inputs": [{"internalType": "string", "name": "deviceId", "type": "string"}],
-        "name": "cancelDelivery",
+        "inputs": [{"internalType": "uint256", "name": "shipmentId", "type": "uint256"}],
+        "name": "cancelShipment",
         "outputs": [],
         "stateMutability": "nonpayable",
         "type": "function",
@@ -48,7 +48,7 @@ _SUBMIT_TRACKER_STATE_ABI = [
 ]
 
 # Combined ABI used for the ColdChainShipment contract
-_CONTRACT_ABI = _CANCEL_DELIVERY_ABI + _SUBMIT_TRACKER_STATE_ABI
+_CONTRACT_ABI = _CANCEL_SHIPMENT_ABI + _SUBMIT_TRACKER_STATE_ABI
 
 # ---------------------------------------------------------------------------
 # Lazy singleton — built once on first call, reused afterwards
@@ -71,12 +71,12 @@ def _get_web3() -> AsyncWeb3:
 # Public API
 # ---------------------------------------------------------------------------
 
-async def trigger_contract_refund(device_id: str) -> str | None:
+async def trigger_contract_refund(shipment_id: int) -> str | None:
     """
-    Send a cancelDelivery(deviceId) transaction to the smart contract.
+    Send a cancelShipment(shipmentId) transaction to the ColdChainShipment contract.
 
     Returns the transaction hash on success, or None if a recoverable error
-    occurred (e.g. RPC unreachable). Non-recoverable exceptions propagate.
+    occurred (e.g. RPC unreachable).
 
     This function is designed to be called as a FastAPI BackgroundTask so
     that telemetry responses are not delayed by blockchain latency.
@@ -87,8 +87,9 @@ async def trigger_contract_refund(device_id: str) -> str | None:
 
     if not rpc_url or not contract_address or not private_key:
         logger.warning(
-            "Web3 environment variables not configured — skipping refund for device %s",
-            device_id,
+            "Web3 environment variables not configured — skipping cancelShipment "
+            "(shipmentId=%s)",
+            shipment_id,
         )
         return None
 
@@ -104,7 +105,7 @@ async def trigger_contract_refund(device_id: str) -> str | None:
         nonce = await w3.eth.get_transaction_count(sender)
         gas_price = await w3.eth.gas_price
 
-        tx = await contract.functions.cancelDelivery(device_id).build_transaction(
+        tx = await contract.functions.cancelShipment(shipment_id).build_transaction(
             {
                 "from": sender,
                 "nonce": nonce,
@@ -117,14 +118,14 @@ async def trigger_contract_refund(device_id: str) -> str | None:
         hex_hash = tx_hash.hex()
 
         logger.info(
-            "cancelDelivery sent for device %s — tx %s", device_id, hex_hash
+            "cancelShipment sent — shipmentId=%s tx=%s", shipment_id, hex_hash
         )
         return hex_hash
 
     except Exception as exc:  # noqa: BLE001
         logger.error(
-            "Failed to trigger contract refund for device %s: %s",
-            device_id,
+            "cancelShipment failed — shipmentId=%s: %s",
+            shipment_id,
             exc,
             exc_info=True,
         )

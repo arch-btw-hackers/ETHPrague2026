@@ -146,9 +146,9 @@ async def _handle_violation(
         telemetry_proof=swarm_hash,
     )
 
-    # Secondary: legacy cancelDelivery (kept for backwards compatibility)
+    # Secondary: cancelShipment fallback (legacy / submitTrackerState unavailable)
     if not tx_hash:
-        tx_hash = await trigger_contract_refund(device_id)
+        tx_hash = await trigger_contract_refund(shipment_id)
 
     recipient = os.environ.get("ALERT_RECIPIENT_EMAIL", "")
     if recipient:

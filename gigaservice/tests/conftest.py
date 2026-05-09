@@ -128,7 +128,7 @@ def clear_conditions_cache():
 @pytest.fixture(autouse=True)
 def mock_blockchain(monkeypatch):
     """Replace blockchain + attestation calls with no-op async stubs for all tests."""
-    async def _noop_refund(device_id: str):
+    async def _noop_refund(shipment_id: int):
         return None
 
     async def _noop_reverse_ens(address: str):

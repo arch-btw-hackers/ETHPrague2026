@@ -1,5 +1,5 @@
 """
-Unit tests for services/blockchain.py — submit_tracker_state function.
+Unit tests for services/blockchain.py — submit_tracker_state and trigger_contract_refund.
 
 All tests mock AsyncWeb3 so no real RPC connection is made in CI.
 """
@@ -13,28 +13,30 @@ import pytest
 # ---------------------------------------------------------------------------
 
 def _make_w3_mock(tx_hex: str = "0x" + "ab" * 32) -> MagicMock:
-    """Return a minimal AsyncWeb3 mock that simulates a successful tx send."""
-    # submitTrackerState(...).build_transaction({...}) → dict
+    """Return a minimal AsyncWeb3 mock that simulates a successful tx send.
+    
+    Both cancelShipment and submitTrackerState use MagicMock auto-return for
+    .functions.<name>(...), so a single mock covers both functions.
+    """
     mock_fn = MagicMock()
     mock_fn.build_transaction = AsyncMock(return_value={"gas": 21000})
 
     mock_contract = MagicMock()
+    # Auto-wired: contract.functions.cancelShipment(...) and .submitTrackerState(...)
+    # both return mock_fn via MagicMock's attribute auto-creation
     mock_contract.functions.submitTrackerState.return_value = mock_fn
+    mock_contract.functions.cancelShipment.return_value = mock_fn
 
-    # Signed tx — raw_transaction is bytes-like
     mock_signed = MagicMock()
     mock_signed.raw_transaction = b"\x00" * 32
 
-    # Account mock
     mock_account = MagicMock()
     mock_account.address = "0x" + "de" * 20
     mock_account.sign_transaction = MagicMock(return_value=mock_signed)
 
-    # Return value of send_raw_transaction must have .hex() → tx_hex
     mock_hash = MagicMock()
     mock_hash.hex.return_value = tx_hex
 
-    # w3.eth — gas_price is awaited as a property, NOT called, so use a coroutine object
     async def _gas_price_coro():
         return int(1e9)
 
@@ -247,3 +249,62 @@ class TestHandleViolationCallsSubmitTrackerState:
         # telemetry_proof should be a non-empty string (the Swarm hash)
         proof = submit_mock.call_args[1].get("telemetry_proof", "")
         assert isinstance(proof, str) and len(proof) > 0
+
+
+# ---------------------------------------------------------------------------
+# trigger_contract_refund — cancelShipment(uint256)
+# ---------------------------------------------------------------------------
+
+class TestTriggerContractRefund:
+    async def test_returns_none_in_dev_mode(self, monkeypatch):
+        monkeypatch.delenv("WEB3_RPC_URL", raising=False)
+        monkeypatch.delenv("CONTRACT_ADDRESS", raising=False)
+        monkeypatch.delenv("WEB3_PRIVATE_KEY", raising=False)
+        monkeypatch.delenv("SERVER_PRIVATE_KEY", raising=False)
+
+        from services.blockchain import trigger_contract_refund
+        result = await trigger_contract_refund(42)
+        assert result is None
+
+    async def test_calls_cancel_shipment_with_int_id(self, monkeypatch):
+        monkeypatch.setenv("WEB3_RPC_URL", "http://localhost:8545")
+        monkeypatch.setenv("CONTRACT_ADDRESS", "0x" + "cc" * 20)
+        monkeypatch.setenv("WEB3_PRIVATE_KEY", "0x" + "aa" * 32)
+
+        expected_hex = "0x" + "ee" * 32
+        mock_w3 = _make_w3_mock(tx_hex=expected_hex)
+        monkeypatch.setattr("services.blockchain._get_web3", lambda: mock_w3)
+        monkeypatch.setattr(
+            "services.blockchain.AsyncWeb3.to_checksum_address",
+            lambda addr: addr,
+        )
+
+        import services.blockchain as bc
+        bc._w3 = None
+
+        from services.blockchain import trigger_contract_refund
+        result = await trigger_contract_refund(99)
+        assert result == expected_hex
+        mock_w3.eth.contract.return_value.functions.cancelShipment.assert_called_once_with(99)
+
+    async def test_rpc_error_returns_none(self, monkeypatch):
+        monkeypatch.setenv("WEB3_RPC_URL", "http://localhost:8545")
+        monkeypatch.setenv("CONTRACT_ADDRESS", "0x" + "cc" * 20)
+        monkeypatch.setenv("WEB3_PRIVATE_KEY", "0x" + "aa" * 32)
+
+        mock_w3 = _make_w3_mock()
+        mock_w3.eth.send_raw_transaction = AsyncMock(
+            side_effect=Exception("out of gas")
+        )
+        monkeypatch.setattr("services.blockchain._get_web3", lambda: mock_w3)
+        monkeypatch.setattr(
+            "services.blockchain.AsyncWeb3.to_checksum_address",
+            lambda addr: addr,
+        )
+
+        import services.blockchain as bc
+        bc._w3 = None
+
+        from services.blockchain import trigger_contract_refund
+        result = await trigger_contract_refund(1)
+        assert result is None
