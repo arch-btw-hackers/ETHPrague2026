@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from api.deps import RoleChecker, get_current_user
+from services.blockchain import resolve_ens
 from storage.swarm import upload_json, download_json, get_device_entry, set_device_entry
 
 router = APIRouter(prefix="/packages", tags=["Packages"])
@@ -23,9 +24,16 @@ async def create_package(
     conditions: DeliveryConditions,
     user: dict = Depends(RoleChecker(["provider", "admin"])),
 ):
+    # Auto-resolve ENS names (e.g. "tracker.eth") to a 0x address.
+    # Non-ENS identifiers are returned unchanged by resolve_ens.
+    try:
+        device_id = await resolve_ens(conditions.device_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
     swarm_hash = await upload_json(conditions.model_dump())
-    await set_device_entry(conditions.device_id, conditions_hash=swarm_hash, latest_telemetry_hash=None)
-    return PackageResponse(device_id=conditions.device_id, swarm_hash=swarm_hash)
+    await set_device_entry(device_id, conditions_hash=swarm_hash, latest_telemetry_hash=None)
+    return PackageResponse(device_id=device_id, swarm_hash=swarm_hash)
 
 
 @router.get("/{device_id}")

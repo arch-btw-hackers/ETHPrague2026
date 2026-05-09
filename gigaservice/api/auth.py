@@ -21,6 +21,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from services.auth import consume_nonce, create_jwt, generate_nonce, get_role
+from services.blockchain import reverse_resolve_ens
 
 logger = logging.getLogger(__name__)
 
@@ -146,5 +147,12 @@ async def verify(data: VerifyRequest):
     role = get_role(address)
     token = create_jwt(address, role)
 
-    logger.info("Authenticated address=%s role=%s", address, role)
+    # Best-effort ENS reverse-lookup for server-side audit logging.
+    # Never blocks the response — errors are silently swallowed inside reverse_resolve_ens.
+    ens_name = await reverse_resolve_ens(address)
+    if ens_name:
+        logger.info("Authenticated address=%s ens=%s role=%s", address, ens_name, role)
+    else:
+        logger.info("Authenticated address=%s role=%s", address, role)
+
     return AuthResponse(token=token, address=address, role=role)

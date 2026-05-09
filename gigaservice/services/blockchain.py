@@ -110,3 +110,59 @@ async def trigger_contract_refund(device_id: str) -> str | None:
             exc_info=True,
         )
         return None
+
+
+# ---------------------------------------------------------------------------
+# ENS helpers
+# ---------------------------------------------------------------------------
+
+async def resolve_ens(name: str) -> str:
+    """
+    Forward-resolve an ENS name to a checksummed Ethereum address.
+
+    If *name* does not end with '.eth' it is returned unchanged, making
+    this function safe to call unconditionally on any identifier.
+
+    Raises ValueError if the name ends with '.eth' but cannot be resolved
+    (no resolver registered, ENS node unavailable, or WEB3_RPC_URL not set).
+    """
+    if not name.endswith(".eth"):
+        return name
+
+    rpc_url = os.environ.get("WEB3_RPC_URL")
+    if not rpc_url:
+        raise ValueError(
+            f"Cannot resolve ENS name '{name}': WEB3_RPC_URL is not configured"
+        )
+
+    try:
+        w3 = _get_web3()
+        address = await w3.ens.address(name)
+        if address is None:
+            raise ValueError(f"ENS name '{name}' has no registered address")
+        logger.info("Resolved ENS %s \u2192 %s", name, address)
+        return address
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError(f"ENS resolution failed for '{name}': {exc}") from exc
+
+
+async def reverse_resolve_ens(address: str) -> str | None:
+    """
+    Reverse-resolve an Ethereum address to its primary ENS name.
+
+    Returns None on any error (RPC unavailable, no reverse record, etc.).
+    Intended for best-effort logging only — never blocks the request path.
+    """
+    rpc_url = os.environ.get("WEB3_RPC_URL")
+    if not rpc_url:
+        return None
+
+    try:
+        w3 = _get_web3()
+        name = await w3.ens.name(address)
+        return name  # None if no reverse record
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Reverse ENS lookup failed for %s: %s", address, exc)
+        return None

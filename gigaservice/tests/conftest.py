@@ -124,11 +124,15 @@ def clear_conditions_cache():
 
 @pytest.fixture(autouse=True)
 def mock_blockchain(monkeypatch):
-    """Replace trigger_contract_refund with a no-op async stub for all tests."""
-    async def _noop(device_id: str):
+    """Replace blockchain calls with no-op async stubs for all tests."""
+    async def _noop_refund(device_id: str):
         return None
 
-    monkeypatch.setattr("api.sensors.trigger_contract_refund", _noop)
+    async def _noop_reverse_ens(address: str):
+        return None  # no ENS name in tests
+
+    monkeypatch.setattr("api.sensors.trigger_contract_refund", _noop_refund)
+    monkeypatch.setattr("api.auth.reverse_resolve_ens", _noop_reverse_ens)
 
 
 # ---------------------------------------------------------------------------
