@@ -385,8 +385,13 @@ class TestVerifySpacecomputerSignature:
         """Restore the real function so these tests bypass the autouse conftest mock."""
         monkeypatch.setattr("api.sensors.verify_spacecomputer_signature", _real_verify_sig)
 
-    def _make_eip191_sig(self, payload: dict) -> tuple[str, str]:
-        """Create a fresh eth_account key, sign payload via EIP-191, return (sig_hex, address)."""
+    def _make_eip191_sig(self, payload: dict, fmt: str = "hex") -> tuple[str, str]:
+        """Create a fresh eth_account key, sign payload via EIP-191.
+
+        fmt: "hex" (0x...), "raw_hex" (no 0x prefix), "base64" (as KMS returns)
+        Returns (signature_string, eth_address).
+        """
+        import base64
         from eth_account import Account
         from eth_account.messages import encode_defunct
         acct = Account.create()
@@ -398,19 +403,49 @@ class TestVerifySpacecomputerSignature:
             f'"acceleration_overload":{readings["acceleration_overload"]:.3f}}}}}'
         )
         msg = encode_defunct(text=signed_str)
-        sig_hex = "0x" + acct.sign_message(msg).signature.hex()
-        return sig_hex, acct.address.lower()
+        sig_bytes = acct.sign_message(msg).signature
+        if fmt == "hex":
+            sig = "0x" + sig_bytes.hex()
+        elif fmt == "raw_hex":
+            sig = sig_bytes.hex()
+        elif fmt == "base64":
+            sig = base64.b64encode(sig_bytes).decode()
+        else:
+            sig = "0x" + sig_bytes.hex()
+        return sig, acct.address.lower()
 
     async def test_valid_signature_returns_true(self, mock_swarm):
-        """Valid EIP-191 signature → TOFU stores address and returns True."""
+        """Valid EIP-191 hex signature → TOFU stores address and returns True."""
         from api.sensors import verify_spacecomputer_signature
         payload = {
             "device_id": "eip191-dev-1",
             "nonce": "abc123",
             "readings": {"temp_c": 22.5, "acceleration_overload": 0.100},
         }
-        sig_hex, _ = self._make_eip191_sig(payload)
+        sig_hex, _ = self._make_eip191_sig(payload, fmt="hex")
         assert await verify_spacecomputer_signature(payload, sig_hex) is True
+
+    async def test_base64_signature_returns_true(self, mock_swarm):
+        """SpaceComputer KMS returns base64 signatures — must be accepted."""
+        from api.sensors import verify_spacecomputer_signature
+        payload = {
+            "device_id": "eip191-dev-b64",
+            "nonce": "xyz987",
+            "readings": {"temp_c": 18.0, "acceleration_overload": 0.250},
+        }
+        sig_b64, _ = self._make_eip191_sig(payload, fmt="base64")
+        assert await verify_spacecomputer_signature(payload, sig_b64) is True
+
+    async def test_raw_hex_no_prefix_returns_true(self, mock_swarm):
+        """Hex signature without 0x prefix is also accepted."""
+        from api.sensors import verify_spacecomputer_signature
+        payload = {
+            "device_id": "eip191-dev-rawhex",
+            "nonce": "nnn",
+            "readings": {"temp_c": 25.0, "acceleration_overload": 1.000},
+        }
+        sig_raw, _ = self._make_eip191_sig(payload, fmt="raw_hex")
+        assert await verify_spacecomputer_signature(payload, sig_raw) is True
 
     async def test_tofu_second_call_same_key_returns_true(self, mock_swarm):
         """Same key on second call → address matches stored TOFU → True."""

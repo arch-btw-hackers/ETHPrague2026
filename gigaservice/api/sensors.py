@@ -67,14 +67,37 @@ async def verify_spacecomputer_signature(payload: dict, signature: str) -> bool:
         f'"acceleration_overload":{acc:.3f}}}}}'
     )
 
-    try:
-        sig = signature.strip()
-        if not sig.startswith("0x"):
-            sig = "0x" + sig
-        message = encode_defunct(text=signed_str)
-        recovered: str = Account.recover_message(message, signature=sig).lower()
-    except Exception as exc:
-        logger.warning("EIP-191 recovery failed for device=%s: %s", device_id, exc)
+    message = encode_defunct(text=signed_str)
+    recovered: str | None = None
+
+    sig = signature.strip()
+    # Strip SpaceComputer vault prefix if present (e.g. "vault:v1:<data>")
+    if ":" in sig and not sig.startswith("0x"):
+        sig = sig.rsplit(":", 1)[-1]
+
+    # Try formats in order: 0x-hex → raw hex → base64
+    candidates: list[str] = []
+    if sig.startswith("0x"):
+        candidates.append(sig)
+    else:
+        # Could be raw hex (no 0x) or base64
+        candidates.append("0x" + sig)  # try as hex
+        try:
+            import base64
+            sig_bytes = base64.b64decode(sig + "==")  # lenient padding
+            candidates.append("0x" + sig_bytes.hex())  # try as base64 → hex
+        except Exception:
+            pass
+
+    for candidate in candidates:
+        try:
+            recovered = Account.recover_message(message, signature=candidate).lower()
+            break
+        except Exception:
+            continue
+
+    if recovered is None:
+        logger.warning("EIP-191 recovery failed for device=%s (tried %d format(s))", device_id, len(candidates))
         return False
 
     # TOFU — store address on first contact, compare on subsequent
