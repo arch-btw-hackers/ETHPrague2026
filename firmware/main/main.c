@@ -57,38 +57,40 @@ static void print_report(void)
         strncpy(nonce, "fetch-failed", sizeof(nonce) - 1);
     }
 
-    /* Create payload to sign */
-    char payload[512];
-    snprintf(payload, sizeof(payload),
-        "{\"device_id\":\"%s\",\"nonce\":\"%s\",\"readings\":{\"temp_c\":%.1f,\"acceleration_overload\":%.3f}}",
-        DEVICE_ID, nonce, temp, peak);
+    /* Step 2: Build readings JSON (only sensor data) */
+    char readings[256];
+    snprintf(readings, sizeof(readings),
+        "{\"temp_c\":%.1f,\"acceleration_overload\":%.3f}",
+        temp, peak);
 
-    /* Sign payload */
-    char signature[1024] = {0};
-    if (kms_sign(payload, signature, sizeof(signature)) != ESP_OK) {
+    /* Step 3: Encrypt readings with server RSA key (OAEP SHA-256) */
+    char ciphertext[512] = {0};
+    if (client_encrypt(readings, ciphertext, sizeof(ciphertext)) != ESP_OK) {
+        ESP_LOGE(TAG, "Encryption failed, skipping report");
+        return;
+    }
+
+    /* Step 4: Sign  nonce + device_id + ciphertext  via KMS (ECDSA P-256) */
+    char sign_input[1024];
+    snprintf(sign_input, sizeof(sign_input), "%s%s%s", nonce, DEVICE_ID, ciphertext);
+
+    char signature[512] = {0};
+    if (kms_sign(sign_input, signature, sizeof(signature)) != ESP_OK) {
         strncpy(signature, "signing-failed", sizeof(signature) - 1);
     }
 
-    /* Print JSON report */
+    /* Print for debug */
     printf("{\n");
     printf("  \"device_id\": \"%s\",\n", DEVICE_ID);
     printf("  \"nonce\": \"%s\",\n", nonce);
-    printf("  \"readings\": {\n");
-    printf("    \"temp_c\": %.1f,\n", temp);
-    printf("    \"acceleration_overload\": %.3f\n", peak);
-    printf("  },\n");
+    printf("  \"ciphertext\": \"%s\",\n", ciphertext);
     printf("  \"signature\": \"%s\"\n", signature);
     printf("}\n");
 
     ESP_LOGI(TAG, "Report: peak=%.3fG temp=%.1f°C", peak, temp);
 
-    /* Encrypt and send to server */
-    char full_json[2048];
-    snprintf(full_json, sizeof(full_json), 
-        "{\"device_id\":\"%s\",\"nonce\":\"%s\",\"readings\":{\"temp_c\":%.1f,\"acceleration_overload\":%.3f},\"signature\":\"%s\"}",
-        DEVICE_ID, nonce, temp, peak, signature);
-
-    client_send_encrypted(full_json);
+    /* Step 5: POST to server */
+    client_post(DEVICE_ID, nonce, ciphertext, signature);
 }
 
 /* Sampling task — runs continuously, silently feeds peak tracker */
