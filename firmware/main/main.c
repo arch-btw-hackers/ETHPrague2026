@@ -1,78 +1,148 @@
 /*
- * BMI160 G-Force Reader for ESP32-S3
+ * Main – ESP32-S3 Cargo Shock Tracker
  *
- * Reads acceleration, computes total G-force magnitude, prints it.
+ * On boot + every minute:
+ *   1. Authenticate with Orbitport (OAuth2 JWT, cached in NVS)
+ *   2. Fetch cosmic entropy nonce from beacon
+ *   3. Read peak G-force from the last interval
+ *   4. Read temperature from BMI160
+ *   5. Print JSON report
  *
- * Wiring:
- *   SCL  -> GPIO6
- *   SDA  -> GPIO5
- *   INT  -> GPIO43
- *   BMI160 I2C address: 0x69
+ * Between reports, continuously samples G-force and tracks the peak.
  */
 
 #include <stdio.h>
-#include <math.h>
+#include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 
-#include <bmi160.h>
+#include "sensor.h"
+#include "wifi.h"
+#include "beacon.h"
+#include "auth.h"
+#include "kms.h"
+#include "time_sync.h"
 
-/* ---------- Pin definitions ---------- */
-#define I2C_SCL_GPIO        GPIO_NUM_6
-#define I2C_SDA_GPIO        GPIO_NUM_5
-#define BMI160_INT_GPIO     GPIO_NUM_43
+static const char *TAG = "MAIN";
 
-static const char *TAG = "GFORCE";
+#define DEVICE_ID       "cargo_tracker_9000"
+#define REPORT_INTERVAL_MS  60000   /* 1 minute */
+#define SAMPLE_INTERVAL_MS  20      /* 50 Hz sampling */
 
-static bmi160_t dev = { 0 };
+static char s_token[2048] = {0};
+
+static void print_report(void)
+{
+    char nonce[128] = {0};
+
+    /* Ensure we have a valid token */
+    if (auth_get_token(s_token, sizeof(s_token)) == ESP_OK) {
+        ESP_LOGI(TAG, "Token ready (len=%d)", (int)strlen(s_token));
+    } else {
+        ESP_LOGW(TAG, "No valid token available");
+    }
+
+    /* Get peak G and reset for next interval */
+    float peak = sensor_get_peak_g();
+    sensor_reset_peak_g();
+
+    /* Read temperature from BMI160 */
+    float temp = sensor_read_temp();
+
+    /* Fetch cosmic entropy */
+    if (beacon_fetch_entropy(nonce, sizeof(nonce)) != ESP_OK) {
+        strncpy(nonce, "fetch-failed", sizeof(nonce) - 1);
+    }
+
+    /* Create payload to sign */
+    char payload[512];
+    snprintf(payload, sizeof(payload),
+        "{\"device_id\":\"%s\",\"nonce\":\"%s\",\"readings\":{\"temp_c\":%.1f,\"acceleration_overload\":%.3f}}",
+        DEVICE_ID, nonce, temp, peak);
+
+    /* Sign payload */
+    char signature[1024] = {0};
+    if (kms_sign(payload, signature, sizeof(signature)) != ESP_OK) {
+        strncpy(signature, "signing-failed", sizeof(signature) - 1);
+    }
+
+    /* Print JSON report */
+    printf("{\n");
+    printf("  \"device_id\": \"%s\",\n", DEVICE_ID);
+    printf("  \"nonce\": \"%s\",\n", nonce);
+    printf("  \"readings\": {\n");
+    printf("    \"temp_c\": %.1f,\n", temp);
+    printf("    \"acceleration_overload\": %.3f\n", peak);
+    printf("  },\n");
+    printf("  \"signature\": \"%s\"\n", signature);
+    printf("}\n");
+
+    ESP_LOGI(TAG, "Report: peak=%.3fG temp=%.1f°C", peak, temp);
+}
+
+/* Sampling task — runs continuously, silently feeds peak tracker */
+static void sensor_task(void *arg)
+{
+    while (1) {
+        sensor_read_g();  /* Internally tracks peak */
+        vTaskDelay(pdMS_TO_TICKS(SAMPLE_INTERVAL_MS));
+    }
+}
+
+/* Report task — first report immediately, then every minute */
+static void report_task(void *arg)
+{
+    /* First report right away */
+    print_report();
+
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(REPORT_INTERVAL_MS));
+        print_report();
+    }
+}
 
 void app_main(void)
 {
-    esp_err_t ret;
-
-    ESP_ERROR_CHECK(i2cdev_init());
-
-    ret = bmi160_init(&dev, BMI160_I2C_ADDRESS_VDD, I2C_NUM_0, I2C_SDA_GPIO, I2C_SCL_GPIO);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "bmi160_init failed: %s", esp_err_to_name(ret));
+    /* 1. Init sensor */
+    if (sensor_init() != ESP_OK) {
+        ESP_LOGE(TAG, "Sensor init failed");
         return;
     }
 
-    bmi160_conf_t conf = {
-        .accRange = BMI160_ACC_RANGE_16G,
-        .accOdr   = BMI160_ACC_ODR_800HZ,
-        .accMode  = BMI160_PMU_ACC_NORMAL,
-        .accAvg   = BMI160_ACC_LP_AVG_1,
-        .accUs    = BMI160_ACC_US_OFF,
-        .gyrRange = BMI160_GYR_RANGE_2000DPS,
-        .gyrOdr   = BMI160_GYR_ODR_100HZ,
-        .gyrMode  = BMI160_PMU_GYR_SUSPEND,
-    };
-
-    ret = bmi160_start(&dev, &conf);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "bmi160_start failed: %s", esp_err_to_name(ret));
+    /* 2. Connect WiFi */
+    if (wifi_init_sta() != ESP_OK) {
+        ESP_LOGE(TAG, "WiFi failed");
         return;
     }
 
-    bmi160_int_out_conf_t int_conf = {
-        .intPin    = BMI160_PIN_INT1,
-        .intEnable = BMI160_INT_ENABLE,
-        .intOd     = BMI160_INT_PUSH_PULL,
-        .intLevel  = BMI160_INT_ACTIVE_HIGH,
-    };
-    bmi160_enable_int_new_data(&dev, &int_conf);
-    dev.intPin = BMI160_INT_GPIO;
+    /* 2.5 Sync time via SNTP (required for JWT expiry check) */
+    time_sync_init();
 
-    ESP_LOGI(TAG, "BMI160 ready – ±16g, 800 Hz");
+    /* 3. Init auth module */
+    auth_init();
 
-    bmi160_result_t r;
-    while (1) {
-        if (bmi160_read_data(&dev, &r) == ESP_OK) {
-            float total_g = sqrtf(r.accX * r.accX + r.accY * r.accY + r.accZ * r.accZ);
-            printf("%.2f G\n", total_g);
-        }
-        vTaskDelay(pdMS_TO_TICKS(100));
+    /* 4. Test auth — get token right away */
+    if (auth_get_token(s_token, sizeof(s_token)) == ESP_OK) {
+        ESP_LOGI(TAG, "Auth OK – token length: %d", (int)strlen(s_token));
+    } else {
+        ESP_LOGE(TAG, "Auth FAILED – continuing without signing");
     }
+
+    /* 4.5 Initialize KMS and ensure we have an RSA key */
+    kms_init();
+    if (kms_ensure_key() == ESP_OK) {
+        ESP_LOGI(TAG, "KMS Key ready");
+    } else {
+        ESP_LOGE(TAG, "Failed to get/create KMS key");
+    }
+
+    /* 5. Start sampling task – pinned to core 1 (WiFi on core 0) */
+    xTaskCreatePinnedToCore(sensor_task, "sensor", 4096, NULL, 3, NULL, 1);
+
+    /* 6. Start reporting task */
+    xTaskCreate(report_task, "report", 24576, NULL, 5, NULL);
+
+    ESP_LOGI(TAG, "System running – reports every %d seconds", REPORT_INTERVAL_MS / 1000);
 }
