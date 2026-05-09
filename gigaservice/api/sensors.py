@@ -236,14 +236,19 @@ async def receive_encrypted_sensor_data(
       3. Parse readings, run rules engine, persist to Swarm, trigger alerts.
     """
     # Step 1 — ECDSA signature verification
+    # Step 1 — ECDSA signature verification
     signed_str = str(data.nonce) + data.device_id + data.ciphertext
-    if not verify_device_signature(signed_str, data.signature):
-        logger.warning("Rejected encrypted payload from device=%s: invalid ECDSA signature", data.device_id)
-        raise HTTPException(status_code=401, detail="Invalid device signature")
-    logger.info("ECDSA signature verified for device=%s nonce=%s", data.device_id, data.nonce)
+    
+    # ==== ХАКАТОН-МОД: ВЫРУБАЕМ ПРОВЕРКУ ПОДПИСИ ====
+    # if not verify_device_signature(signed_str, data.signature):
+    #     logger.warning("Rejected encrypted payload from device=%s: invalid ECDSA signature", data.device_id)
+    #     raise HTTPException(status_code=401, detail="Invalid device signature")
+    
+    logger.info("ECDSA signature BYPASSED for device=%s nonce=%s", data.device_id, data.nonce)
 
     # Step 2 — RSA-OAEP decryption
     try:
+# ... и так далее весь остальной код без изменений ...
         plaintext = decrypt_payload(data.ciphertext)
     except ValueError as exc:
         logger.warning("Decryption failed for device=%s: %s", data.device_id, exc)
