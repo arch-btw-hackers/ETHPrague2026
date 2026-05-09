@@ -108,7 +108,19 @@ def clear_conditions_cache():
     import api.sensors as sensors_mod
     sensors_mod.CONDITIONS_CACHE.clear()
     yield
-    sensors_mod.CONDITIONS_CACHE.clear()
+
+
+# ---------------------------------------------------------------------------
+# Blockchain stub — prevent real Web3 calls in CI
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def mock_blockchain(monkeypatch):
+    """Replace trigger_contract_refund with a no-op async stub for all tests."""
+    async def _noop(device_id: str):
+        return None
+
+    monkeypatch.setattr("api.sensors.trigger_contract_refund", _noop)
 
 
 # ---------------------------------------------------------------------------

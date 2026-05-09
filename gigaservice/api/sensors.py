@@ -1,9 +1,20 @@
 from datetime import datetime, timezone
+import base64
+import json
+import logging
+import os
 
-from fastapi import APIRouter, HTTPException
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.exceptions import InvalidSignature
+
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
+from services.blockchain import trigger_contract_refund
 from storage.swarm import upload_json, download_json, get_device_entry, set_device_entry
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sensors", tags=["Sensors"])
 
@@ -22,15 +33,53 @@ async def _get_conditions(conditions_hash: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# SpaceComputer KMS — signature verification stub
+# SpaceComputer KMS — ECDSA P-256 signature verification
 # ---------------------------------------------------------------------------
 
+def _load_public_key():
+    """Load the device's ECDSA P-256 public key from the environment.
+
+    Returns the key object, or None when the env var is not set (dev mode).
+    """
+    pem = os.environ.get("DEVICE_PUBLIC_KEY_PEM", "").strip()
+    if not pem:
+        return None
+    # Allow \\n escapes so the key fits on a single .env line
+    pem = pem.replace("\\n", "\n")
+    return serialization.load_pem_public_key(pem.encode())
+
+
 async def verify_spacecomputer_signature(payload: dict, signature: str) -> bool:
+    """Verify an ECDSA P-256 / SHA-256 signature from the IoT tracker.
+
+    The message is the canonical JSON of the payload dict (keys sorted
+    alphabetically, no whitespace) encoded as UTF-8.
+
+    Returns True on valid signature.
+    Returns True (with a warning) when DEVICE_PUBLIC_KEY_PEM is not set.
+    Returns False when the signature is invalid or malformed.
     """
-    TODO: call SpaceComputer KMS.
-    Stub: always returns True.
-    """
-    return True
+    public_key = _load_public_key()
+    if public_key is None:
+        logger.warning(
+            "DEVICE_PUBLIC_KEY_PEM not set — skipping signature verification (dev mode)"
+        )
+        return True
+
+    # Canonical message: alphabetically sorted keys, no whitespace
+    message = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+
+    try:
+        sig_bytes = base64.b64decode(signature, validate=True)
+    except Exception:
+        logger.debug("Signature is not valid Base64")
+        return False
+
+    try:
+        public_key.verify(sig_bytes, message, ec.ECDSA(hashes.SHA256()))
+        return True
+    except InvalidSignature:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -66,7 +115,7 @@ class SensorResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 @router.post("/data", response_model=SensorResponse)
-async def receive_sensor_data(data: SignedRequest):
+async def receive_sensor_data(data: SignedRequest, background_tasks: BackgroundTasks):
     payload = data.payload
     readings = payload.readings
 
@@ -113,6 +162,10 @@ async def receive_sensor_data(data: SignedRequest):
             status_code=500,
             detail="Index write failed after Swarm upload. Please retry.",
         ) from exc
+
+    # 6. If conditions were violated, trigger contract refund in the background
+    if not is_valid:
+        background_tasks.add_task(trigger_contract_refund, payload.device_id)
 
     print(
         f"Device: {payload.device_id} | Temp: {readings.temp_c} | "

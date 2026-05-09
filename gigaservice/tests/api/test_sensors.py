@@ -368,3 +368,75 @@ class TestIndexRollback:
         # History should still be empty (index not updated)
         resp = client.get(f"/packages/{delivery_conditions['device_id']}/history")
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Unit tests for ECDSA P-256 signature verification
+# ---------------------------------------------------------------------------
+
+class TestVerifySpacecomputerSignature:
+    """
+    Tests for verify_spacecomputer_signature using a freshly generated
+    ephemeral P-256 key pair — no external infrastructure needed.
+    """
+
+    @pytest.fixture()
+    def key_pair(self):
+        from cryptography.hazmat.primitives.asymmetric import ec
+        private_key = ec.generate_private_key(ec.SECP256R1())
+        public_key = private_key.public_key()
+        return private_key, public_key
+
+    @pytest.fixture()
+    def pem_env(self, key_pair, monkeypatch):
+        from cryptography.hazmat.primitives import serialization
+        _, public_key = key_pair
+        pem = public_key.public_bytes(
+            serialization.Encoding.PEM,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        ).decode()
+        monkeypatch.setenv("DEVICE_PUBLIC_KEY_PEM", pem)
+        # Reset cached key loader between tests
+        return pem
+
+    def _make_signature(self, private_key, payload: dict) -> str:
+        import json, base64
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import ec
+        message = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        sig = private_key.sign(message, ec.ECDSA(hashes.SHA256()))
+        return base64.b64encode(sig).decode()
+
+    async def test_valid_signature_returns_true(self, key_pair, pem_env):
+        from api.sensors import verify_spacecomputer_signature
+        private_key, _ = key_pair
+        payload = {"device_id": "dev-1", "nonce": 42, "readings": {"temp_c": 20.0, "acceleration_x": 0.1, "acceleration_y": 0.2}}
+        sig = self._make_signature(private_key, payload)
+        assert await verify_spacecomputer_signature(payload, sig) is True
+
+    async def test_wrong_signature_returns_false(self, key_pair, pem_env):
+        from api.sensors import verify_spacecomputer_signature
+        from cryptography.hazmat.primitives.asymmetric import ec as ec_mod
+        _, _ = key_pair
+        other_key = ec_mod.generate_private_key(ec_mod.SECP256R1())
+        payload = {"device_id": "dev-1", "nonce": 1, "readings": {}}
+        sig = self._make_signature(other_key, payload)
+        assert await verify_spacecomputer_signature(payload, sig) is False
+
+    async def test_tampered_payload_returns_false(self, key_pair, pem_env):
+        from api.sensors import verify_spacecomputer_signature
+        private_key, _ = key_pair
+        original = {"device_id": "dev-1", "nonce": 1, "readings": {"temp_c": 20.0}}
+        sig = self._make_signature(private_key, original)
+        tampered = {**original, "nonce": 99}
+        assert await verify_spacecomputer_signature(tampered, sig) is False
+
+    async def test_invalid_base64_returns_false(self, pem_env):
+        from api.sensors import verify_spacecomputer_signature
+        assert await verify_spacecomputer_signature({"x": 1}, "!!!not-base64!!!") is False
+
+    async def test_no_env_var_returns_true_with_warning(self, monkeypatch):
+        from api.sensors import verify_spacecomputer_signature
+        monkeypatch.delenv("DEVICE_PUBLIC_KEY_PEM", raising=False)
+        # Dev mode: no key configured → returns True (with log warning)
+        assert await verify_spacecomputer_signature({"x": 1}, "anysig") is True
