@@ -174,7 +174,7 @@ class TestEncryptedDataEndpoint:
             "/api/v1/sensors/encrypted-data",
             json={
                 "device_id": "enc-device-1",
-                "nonce": 42,
+                "nonce": "42",
                 "ciphertext": ciphertext,
                 "signature": "vault:v1:fakesig",
             },
@@ -188,7 +188,7 @@ class TestEncryptedDataEndpoint:
     def test_invalid_base64_returns_422(self, client):
         resp = client.post(
             "/api/v1/sensors/encrypted-data",
-            json={"device_id": "d", "nonce": 1, "ciphertext": "!!!not-base64!!!", "signature": "sig"},
+            json={"device_id": "d", "nonce": "1", "ciphertext": "!!!not-base64!!!", "signature": "sig"},
         )
         assert resp.status_code == 422
 
@@ -196,7 +196,7 @@ class TestEncryptedDataEndpoint:
         garbage = base64.b64encode(b"random garbage bytes").decode()
         resp = client.post(
             "/api/v1/sensors/encrypted-data",
-            json={"device_id": "d", "nonce": 1, "ciphertext": garbage, "signature": "sig"},
+            json={"device_id": "d", "nonce": "1", "ciphertext": garbage, "signature": "sig"},
         )
         assert resp.status_code == 422
 
@@ -214,7 +214,7 @@ class TestEncryptedDataEndpoint:
         ciphertext_b64 = base64.b64encode(ciphertext).decode()
         resp = client.post(
             "/api/v1/sensors/encrypted-data",
-            json={"device_id": "d", "nonce": 1, "ciphertext": ciphertext_b64, "signature": "sig"},
+            json={"device_id": "d", "nonce": "1", "ciphertext": ciphertext_b64, "signature": "sig"},
         )
         assert resp.status_code == 422
 
@@ -226,7 +226,7 @@ class TestEncryptedDataEndpoint:
             "/api/v1/sensors/encrypted-data",
             json={
                 "device_id": "enc-device-1",
-                "nonce": 43,
+                "nonce": "43",
                 "ciphertext": ciphertext,
                 "signature": "vault:v1:fakesig",
             },
@@ -274,7 +274,7 @@ class TestDeviceSimulation:
 
         # ---- Step 2: Encrypt readings ----
         device_id = "sim-device-1"
-        nonce = 1001
+        nonce = "1001"
         readings = {"temp_c": 5.5, "acceleration_overload": 0.3, "lat": 50.08, "lon": 14.43}
         plaintext = json.dumps(readings).encode()
         ciphertext_bytes = server_pub.encrypt(
@@ -320,7 +320,7 @@ class TestDeviceSimulation:
         server_pub = serialization.load_pem_public_key(server_pub_pem.encode())
 
         device_id = "sim-device-2"
-        nonce = 999
+        nonce = "999"
         readings = {"temp_c": 3.0, "acceleration_overload": 0.1}
         ciphertext_bytes = server_pub.encrypt(
             json.dumps(readings).encode(),

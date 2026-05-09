@@ -290,7 +290,7 @@ async def receive_encrypted_sensor_data(
     if not verify_device_signature(signed_str, data.signature):
         logger.warning("Rejected encrypted payload from device=%s: invalid ECDSA signature", data.device_id)
         raise HTTPException(status_code=401, detail="Invalid device signature")
-    logger.info("ECDSA signature verified for device=%s nonce=%d", data.device_id, data.nonce)
+    logger.info("ECDSA signature verified for device=%s nonce=%s", data.device_id, data.nonce)
 
     # Step 2 — RSA-OAEP decryption
     try:
@@ -311,7 +311,7 @@ async def receive_encrypted_sensor_data(
     # Step 4 — Delegate to standard pipeline via synthetic SignedRequest
     device_payload = DevicePayload(
         device_id=data.device_id,
-        nonce=data.nonce,
+        nonce=int(data.nonce),
         readings=Readings(
             temp_c=enc_readings.temp_c,
             acceleration_overload=enc_readings.acceleration_overload,

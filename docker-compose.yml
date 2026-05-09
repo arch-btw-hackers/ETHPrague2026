@@ -7,6 +7,8 @@ services:
     ports:
       - "1633:1633"
       - "1635:1635"
+    environment:
+      - BEE_PASSWORD=67  # <--- Добавили вот это
     command: >
       start
       --api-addr=:1633
