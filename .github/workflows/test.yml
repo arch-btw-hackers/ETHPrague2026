@@ -10,7 +10,6 @@ jobs:
   test:
     name: Test (Python 3.12)
     runs-on: ubuntu-latest
-    environment: BEE_API_URL
 
     defaults:
       run:
@@ -42,6 +41,7 @@ jobs:
         env:
           # Prevent any real Swarm/Web3/JWT calls — mocks handle everything
           JWT_SECRET: ci-test-secret
+          PYTHONPATH: ${{ github.workspace }}/gigaservice
         run: |
           pytest \
             --cov=. \
