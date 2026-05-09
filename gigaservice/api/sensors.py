@@ -264,6 +264,18 @@ async def receive_encrypted_sensor_data(
         raise HTTPException(status_code=422, detail=f"Invalid decrypted payload: {exc}")
 
     # Step 4 — Delegate to standard pipeline via synthetic SignedRequest
+    # Auto-register device with permissive default conditions if not yet known.
+    entry = await get_device_entry(data.device_id)
+    if not entry or not entry.get("conditions_hash"):
+        default_conditions = {
+            "device_id": data.device_id,
+            "max_temp_c": 100.0,
+            "max_acceleration": 100.0,
+        }
+        conditions_hash = await upload_json(default_conditions)
+        await set_device_entry(data.device_id, conditions_hash=conditions_hash, latest_telemetry_hash=None)
+        logger.info("Auto-registered device=%s with default conditions", data.device_id)
+
     device_payload = DevicePayload(
         device_id=data.device_id,
         nonce=data.nonce,
