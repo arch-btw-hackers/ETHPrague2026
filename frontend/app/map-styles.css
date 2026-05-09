@@ -155,3 +155,41 @@ body.vt-compromised::before {
   box-shadow: 0 0 14px var(--vt-accent, #22D3EE);
   cursor: grab;
 }
+
+/* Bare scrubber — track + thumb invisible; handle is rendered separately. */
+.vt-scrub-bare {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 100%;
+  background: transparent;
+  outline: none;
+}
+.vt-scrub-bare::-webkit-slider-runnable-track {
+  height: 100%;
+  background: transparent;
+  border: none;
+}
+.vt-scrub-bare::-moz-range-track {
+  height: 100%;
+  background: transparent;
+  border: none;
+}
+.vt-scrub-bare::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 9999px;
+  background: transparent;
+  border: none;
+  cursor: grab;
+}
+.vt-scrub-bare::-webkit-slider-thumb:active { cursor: grabbing; }
+.vt-scrub-bare::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 9999px;
+  background: transparent;
+  border: none;
+  cursor: grab;
+}

@@ -42,6 +42,8 @@ interface Props {
   panic?: boolean;
   /** Optional override for the big readout (e.g., scrubbed value). */
   liveValue?: number;
+  /** Temporal mode — affects readout colour + footer label. */
+  mode?: "past" | "live" | "future";
 }
 
 export function SensorChart({
@@ -57,6 +59,7 @@ export function SensorChart({
   precision = 2,
   panic = false,
   liveValue,
+  mode = "live",
 }: Props) {
   const gid = useId().replace(/:/g, "");
   const stroke = panic ? "#FB923C" : ACCENTS[accent];
@@ -89,10 +92,23 @@ export function SensorChart({
     >
       {/* Header row: tiny label, big glowing readout. */}
       <div className="flex items-baseline justify-between gap-4">
-        <div>
-          <div className="text-[10px] uppercase tracking-[0.28em] text-white/70">
+        <div className="flex items-center gap-2">
+          <div className="text-[10px] uppercase tracking-[0.28em] text-white/80">
             {label}
           </div>
+          {mode !== "live" && (
+            <span
+              className="rounded-full border px-1.5 py-px font-mono text-[8px] uppercase tracking-[0.28em]"
+              style={{
+                color: mode === "future" ? "#A78BFA" : "#94A3B8",
+                borderColor: mode === "future" ? "#A78BFA66" : "#94A3B866",
+                background:
+                  mode === "future" ? "rgba(167,139,250,0.08)" : "rgba(148,163,184,0.06)",
+              }}
+            >
+              {mode === "future" ? "forecast" : "replay"}
+            </span>
+          )}
         </div>
         <div className="text-right">
           <div className="flex items-baseline justify-end gap-1.5">
@@ -215,11 +231,11 @@ export function SensorChart({
       </div>
 
       {/* Footer: minimal timeline axis. */}
-      <div className="mt-2 flex items-center justify-between font-mono text-[9px] uppercase tracking-[0.28em] text-white/45">
+      <div className="mt-2 flex items-center justify-between font-mono text-[9px] uppercase tracking-[0.28em] text-white/65">
         <span>timeline</span>
         <span>
           {startTs ? new Date(startTs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"}
-          <span className="mx-2 text-white/30">→</span>
+          <span className="mx-2 text-white/40">→</span>
           {forecast.length
             ? "+24m forecast"
             : endTs

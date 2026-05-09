@@ -23,9 +23,6 @@ import {
   Check,
   Copy,
   Gavel,
-  Pause,
-  Play,
-  Radio,
   ShieldCheck,
   ShieldX,
   X,
@@ -72,14 +69,11 @@ export default function ShipmentDashboard({
   );
 
   // ── Temporal scrubber state ───────────────────────────────────────────
-  // Slider position 0..1 within the available telemetry window. 1 = LIVE.
-  const [scrub, setScrub] = useState(1);
-  const [paused, setPaused] = useState(false);
-
-  // When new telemetry arrives in LIVE mode, snap forward.
-  useEffect(() => {
-    if (!paused && scrub >= 0.999) setScrub(1);
-  }, [data?.telemetries.length, paused, scrub]);
+  // scrubT is an absolute timestamp (ms). Domain spans the full journey
+  // from the first observation to the predicted ETA. NOW marks the present;
+  // anything left of NOW is historic, anything right is AI-forecast.
+  const [scrubT, setScrubT] = useState<number | null>(null);
+  const [follow, setFollow] = useState(true); // when true, scrubT == now (live)
 
   const enrichedEvents = useMemoEnrichment(data?.events ?? []);
 
@@ -92,40 +86,98 @@ export default function ShipmentDashboard({
 
   // ── Derive scrubbed views ─────────────────────────────────────────────
   const tele = data?.telemetries ?? [];
-  const scrubIndex =
-    tele.length > 0 ? Math.round((tele.length - 1) * scrub) : 0;
-  const scrubTele = tele[scrubIndex];
-  const isLive = scrub >= 0.999;
+  const now = Date.now();
 
-  const visibleTele = useMemo(
-    () => (isLive ? tele : tele.slice(0, scrubIndex + 1)),
-    [tele, isLive, scrubIndex]
-  );
+  // Domain start = first telemetry (or shipment creation if no telemetry)
+  // Domain end   = ETA + a small tail so future is visible.
+  const domainStart = tele.length
+    ? new Date(tele[0].recordedAt).getTime()
+    : now - 3_600_000;
+  const etaT = data?.etaAt ? new Date(data.etaAt).getTime() : now + 3_600_000;
+  const domainEnd = Math.max(etaT, now + 60_000);
 
-  // Charts and live readouts ALWAYS reflect the present — timeline scrubbing
-  // only repositions the map marker. This prevents jurors from misreading
-  // historical telemetry as the current state.
+  const t = follow || scrubT == null ? now : scrubT;
+  // Mode classification with a small dead-zone around "now" so live state
+  // doesn't flicker if the user lets go just before now.
+  const mode: "past" | "live" | "future" =
+    follow || Math.abs(t - now) < 30_000
+      ? "live"
+      : t < now
+      ? "past"
+      : "future";
+  const isLive = mode === "live";
+
+  // Find telemetry sample at-or-before t (for map marker + readouts).
+  const scrubTele = useMemo(() => {
+    if (!tele.length) return undefined;
+    if (mode === "future" || mode === "live") return tele[tele.length - 1];
+    let idx = 0;
+    for (let i = 0; i < tele.length; i++) {
+      if (new Date(tele[i].recordedAt).getTime() <= t) idx = i;
+      else break;
+    }
+    return tele[idx];
+  }, [tele, t, mode]);
+
+  // Series for charts. Past: slice up to t. Live: full real series. Future:
+  // full real series + forecast up to t. Big readout pulled from value-at-t.
   const series = useMemo(() => {
-    const map = (key: keyof Telemetry) =>
+    const realPoints = (key: keyof Telemetry) =>
       tele
-        .filter((t) => t[key] != null)
-        .map((t) => ({
-          t: new Date(t.recordedAt).getTime(),
-          v: t[key] as number,
+        .filter((x) => x[key] != null)
+        .map((x) => ({
+          t: new Date(x.recordedAt).getTime(),
+          v: x[key] as number,
         }));
-    const fc = (k: "tempC" | "shockG" | "speedKph") =>
+    const fcPoints = (k: "tempC" | "shockG" | "speedKph") =>
       (insight?.forecast ?? []).map((f) => ({
         t: new Date(f.t).getTime(),
         v: f[k],
       }));
-    return {
-      temp: map("tempC"),
-      shock: map("shockG"),
-      hum: map("humidity"),
-      speed: map("speedKph"),
-      fc: { temp: fc("tempC"), shock: fc("shockG"), speed: fc("speedKph") },
+    const slicePast = (arr: { t: number; v: number }[]) =>
+      mode === "past" ? arr.filter((p) => p.t <= t) : arr;
+    const sliceFuture = (arr: { t: number; v: number }[]) =>
+      mode === "future" ? arr.filter((p) => p.t <= t) : mode === "past" ? [] : arr;
+    const lastAtT = (arr: { t: number; v: number }[]): number | undefined => {
+      if (!arr.length) return undefined;
+      if (mode === "live") return arr[arr.length - 1].v;
+      if (mode === "past") {
+        const f = arr.filter((p) => p.t <= t);
+        return f.length ? f[f.length - 1].v : undefined;
+      }
+      // future: prefer forecast value at-or-before t, else last real value
+      return undefined;
     };
-  }, [tele, insight]);
+    const tempReal = realPoints("tempC");
+    const shockReal = realPoints("shockG");
+    const humReal = realPoints("humidity");
+    const speedReal = realPoints("speedKph");
+    const tempFc = fcPoints("tempC");
+    const shockFc = fcPoints("shockG");
+    const speedFc = fcPoints("speedKph");
+    const fcAtT = (arr: { t: number; v: number }[]) => {
+      if (mode !== "future" || !arr.length) return undefined;
+      const f = arr.filter((p) => p.t <= t);
+      return f.length ? f[f.length - 1].v : arr[0].v;
+    };
+    return {
+      temp: slicePast(tempReal),
+      shock: slicePast(shockReal),
+      hum: slicePast(humReal),
+      speed: slicePast(speedReal),
+      fc: {
+        temp: sliceFuture(tempFc),
+        shock: sliceFuture(shockFc),
+        speed: sliceFuture(speedFc),
+      },
+      readout: {
+        temp: fcAtT(tempFc) ?? lastAtT(tempReal),
+        shock: fcAtT(shockFc) ?? lastAtT(shockReal),
+        hum: lastAtT(humReal),
+        speed: fcAtT(speedFc) ?? lastAtT(speedReal),
+      },
+    };
+  }, [tele, insight, t, mode]);
 
   if (error) {
     return (
@@ -173,22 +225,19 @@ export default function ShipmentDashboard({
       <section className="mt-6 grid gap-5 lg:grid-cols-3 lg:[grid-template-rows:1fr]">
         <div className="lg:col-span-2 flex flex-col gap-3">
           <LiveMap shipment={data} scrubTelemetry={isLive ? null : scrubTele} />
-          <Scrubber
-            telemetries={tele}
-            scrub={scrub}
-            onScrub={(v) => {
-              setScrub(v);
-              if (v < 0.999) setPaused(true);
+          <TimelineScrubber
+            domainStart={domainStart}
+            domainEnd={domainEnd}
+            now={now}
+            t={t}
+            mode={mode}
+            onScrub={(ms) => {
+              setScrubT(ms);
+              setFollow(false);
             }}
-            isLive={isLive}
-            paused={paused}
-            onTogglePlay={() => {
-              if (!isLive) {
-                setScrub(1);
-                setPaused(false);
-              } else {
-                setPaused((p) => !p);
-              }
+            onLive={() => {
+              setFollow(true);
+              setScrubT(null);
             }}
           />
         </div>
@@ -208,6 +257,8 @@ export default function ShipmentDashboard({
           height={220}
           precision={1}
           panic={!!compromised}
+          liveValue={series.readout.temp}
+          mode={mode}
         />
         <SensorChart
           data={series.shock}
@@ -220,6 +271,8 @@ export default function ShipmentDashboard({
           height={220}
           precision={2}
           panic={!!compromised}
+          liveValue={series.readout.shock}
+          mode={mode}
         />
         <SensorChart
           data={series.hum}
@@ -229,6 +282,8 @@ export default function ShipmentDashboard({
           height={180}
           precision={0}
           panic={!!compromised}
+          liveValue={series.readout.hum}
+          mode={mode}
         />
         <SensorChart
           data={series.speed}
@@ -239,6 +294,8 @@ export default function ShipmentDashboard({
           height={180}
           precision={0}
           panic={!!compromised}
+          liveValue={series.readout.speed}
+          mode={mode}
         />
       </section>
 
@@ -466,75 +523,158 @@ function Hero({ data, compromised }: { data: ShipmentDetail; compromised: boolea
   );
 }
 
-// ── Scrubber ────────────────────────────────────────────────────────────
+// ── Temporal Scrubber ──────────────────────────────────────────────────
+// Full-journey timeline. Past = solid track, future = dashed (AI forecast).
+// NOW marker is fixed at the present position; the handle can be dragged
+// freely across past, present, future. Snapping back to NOW restores live.
 
-function Scrubber({
-  telemetries,
-  scrub,
+function TimelineScrubber({
+  domainStart,
+  domainEnd,
+  now,
+  t,
+  mode,
   onScrub,
-  isLive,
-  paused,
-  onTogglePlay,
+  onLive,
 }: {
-  telemetries: Telemetry[];
-  scrub: number;
-  onScrub: (v: number) => void;
-  isLive: boolean;
-  paused: boolean;
-  onTogglePlay: () => void;
+  domainStart: number;
+  domainEnd: number;
+  now: number;
+  t: number;
+  mode: "past" | "live" | "future";
+  onScrub: (ms: number) => void;
+  onLive: () => void;
 }) {
-  const total = telemetries.length;
-  const idx = total > 0 ? Math.round((total - 1) * scrub) : 0;
-  const stamp = telemetries[idx];
-  const startTs = telemetries[0]?.recordedAt;
-  const endTs = telemetries[total - 1]?.recordedAt;
+  const span = Math.max(1, domainEnd - domainStart);
+  const nowPct = Math.min(100, Math.max(0, ((now - domainStart) / span) * 100));
+  const tPct = Math.min(100, Math.max(0, ((t - domainStart) / span) * 100));
+
+  const fmt = (ms: number) =>
+    new Date(ms).toLocaleString(undefined, {
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  const fmtTick = (ms: number) =>
+    new Date(ms).toLocaleString(undefined, { day: "2-digit", month: "short" });
+
+  // 5 evenly-spaced tick marks across the domain
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map(
+    (k) => domainStart + span * k
+  );
+
+  const accent = mode === "future" ? "#A78BFA" : mode === "past" ? "#94A3B8" : "#22D3EE";
 
   return (
-    <div className="rounded-2xl border border-white/[0.06] bg-white/[0.015] px-4 py-3">
-      <div className="flex items-center gap-3">
-        <button
-          onClick={onTogglePlay}
-          className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/[0.02] text-white/60 transition hover:border-white/30 hover:text-white"
-          aria-label={isLive && !paused ? "Pause live" : "Resume live"}
-        >
-          {!isLive ? (
-            <Play className="h-3 w-3" />
-          ) : paused ? (
-            <Play className="h-3 w-3" />
-          ) : (
-            <Pause className="h-3 w-3" />
-          )}
-        </button>
-
-        <div className="flex flex-1 flex-col">
-          <input
-            type="range"
-            min={0}
-            max={1000}
-            value={Math.round(scrub * 1000)}
-            onChange={(e) => onScrub(Number(e.target.value) / 1000)}
-            className="vt-scrub w-full"
-            style={
-              {
-                ["--vt-fill" as string]: `${scrub * 100}%`,
-                ["--vt-accent" as string]: isLive ? "#22D3EE" : "#A78BFA",
-              } as React.CSSProperties
-            }
-          />
-          <div className="mt-1 flex items-center justify-between font-mono text-[9px] uppercase tracking-[0.28em] text-white/30">
-            <span>{startTs ? new Date(startTs).toLocaleTimeString() : "—"}</span>
-            <span className={isLive ? "text-cyan" : "text-violet-300"}>
-              {isLive ? (
-                <span className="inline-flex items-center gap-1">
-                  <Radio className="h-3 w-3" /> live
-                </span>
-              ) : (
-                stamp ? new Date(stamp.recordedAt).toLocaleTimeString() : "—"
-              )}
-            </span>
-            <span>{endTs ? new Date(endTs).toLocaleTimeString() : "—"}</span>
-          </div>
+    <div className="relative rounded-2xl border border-white/[0.06] bg-white/[0.015] px-5 pt-5 pb-3">
+      {/* Top row: scrubbed timestamp + mode badge + jump to NOW */}
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="font-mono text-[11px] uppercase tracking-[0.28em] text-white/80">
+          {fmt(t)}
         </div>
+        <div className="flex items-center gap-2">
+          <span
+            className="rounded-full border px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.28em]"
+            style={{
+              borderColor: `${accent}55`,
+              color: accent,
+              background: `${accent}10`,
+            }}
+          >
+            {mode === "past" ? "Replay" : mode === "future" ? "AI Forecast" : "Live"}
+          </span>
+          {mode !== "live" && (
+            <button
+              onClick={onLive}
+              className="rounded-full border border-white/15 bg-white/[0.02] px-2.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.28em] text-white/65 transition hover:border-cyan/60 hover:text-cyan"
+            >
+              Jump to NOW
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Track */}
+      <div className="relative h-9">
+        {/* Solid past line, dashed future line */}
+        <div
+          className="absolute top-1/2 left-0 h-px -translate-y-1/2"
+          style={{
+            width: `${nowPct}%`,
+            background: "rgba(255,255,255,0.45)",
+          }}
+        />
+        <div
+          className="absolute top-1/2 h-px -translate-y-1/2"
+          style={{
+            left: `${nowPct}%`,
+            width: `${100 - nowPct}%`,
+            backgroundImage:
+              "repeating-linear-gradient(to right, rgba(255,255,255,0.28) 0 4px, transparent 4px 8px)",
+          }}
+        />
+
+        {/* AI Forecast accent dot (above NOW marker) */}
+        <span
+          className="absolute h-2 w-2 -translate-x-1/2 rounded-full"
+          style={{
+            left: `${nowPct}%`,
+            top: "calc(50% - 14px)",
+            background: "#34D399",
+            boxShadow: "0 0 10px rgba(52,211,153,0.85)",
+          }}
+        />
+
+        {/* NOW vertical guide */}
+        <span
+          className="absolute top-1/2 h-3 w-px -translate-x-1/2 -translate-y-1/2"
+          style={{ left: `${nowPct}%`, background: "rgba(255,255,255,0.55)" }}
+        />
+
+        {/* Range slider (transparent, on top of the rendered track) */}
+        <input
+          type="range"
+          min={0}
+          max={10000}
+          value={Math.round((tPct / 100) * 10000)}
+          onChange={(e) => {
+            const k = Number(e.target.value) / 10000;
+            onScrub(domainStart + span * k);
+          }}
+          className="vt-scrub-bare absolute inset-0 w-full cursor-pointer"
+          style={{ ["--vt-thumb" as string]: accent } as React.CSSProperties}
+          aria-label="Timeline scrubber"
+        />
+
+        {/* Visible handle (mirrors slider value) */}
+        <span
+          className="pointer-events-none absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-black"
+          style={{
+            left: `${tPct}%`,
+            background: "#FFFFFF",
+            boxShadow: `0 0 14px ${accent}88`,
+          }}
+        />
+      </div>
+
+      {/* Bottom row: tick labels + NOW caption */}
+      <div className="relative mt-1 h-4">
+        {ticks.map((ms, i) => (
+          <span
+            key={i}
+            className="absolute -translate-x-1/2 font-mono text-[9px] uppercase tracking-[0.24em] text-white/45"
+            style={{ left: `${[0, 25, 50, 75, 100][i]}%` }}
+          >
+            {fmtTick(ms)}
+          </span>
+        ))}
+        <span
+          className="absolute -translate-x-1/2 font-mono text-[9px] uppercase tracking-[0.32em] text-white/55"
+          style={{ left: `${nowPct}%`, top: 14 }}
+        >
+          now
+        </span>
       </div>
     </div>
   );
@@ -593,6 +733,37 @@ function HardwareBadge({ compromised }: { compromised: boolean }) {
 function useMemoEnrichment(events: TimelineEvent[]): TimelineEvent[] {
   return useMemo(() => {
     if (!events || events.length === 0) return [];
+    // Collapse consecutive duplicates (e.g. operator spamming Dispute) so
+    // the timeline stays clean. Same kind + same message within 90s window
+    // → group, keep the latest, append " × N" suffix.
+    const collapsed: TimelineEvent[] = [];
+    for (const ev of events) {
+      const prev = collapsed[collapsed.length - 1];
+      const baseMessage = ev.message.replace(/\s+×\s*\d+$/, "");
+      const prevBase = prev?.message.replace(/\s+×\s*\d+$/, "");
+      const dt = prev
+        ? Math.abs(
+            new Date(ev.createdAt).getTime() -
+              new Date(prev.createdAt).getTime()
+          )
+        : Infinity;
+      if (
+        prev &&
+        prev.kind === ev.kind &&
+        prevBase === baseMessage &&
+        dt < 5 * 60_000
+      ) {
+        const m = (prev.meta as { _count?: number } | null) ?? {};
+        const count = (m._count ?? 1) + 1;
+        collapsed[collapsed.length - 1] = {
+          ...ev,
+          message: `${baseMessage} × ${count}`,
+          meta: { ...(ev.meta ?? {}), _count: count },
+        };
+      } else {
+        collapsed.push(ev);
+      }
+    }
     const x402: TimelineEvent = {
       id: "synthetic-x402",
       kind: "AGENTIC_PAYMENT",
@@ -601,7 +772,7 @@ function useMemoEnrichment(events: TimelineEvent[]): TimelineEvent[] {
       meta: { protocol: "x402", recipient: "apify.eth", amount: "0.05 USDC" },
       createdAt: new Date(Date.now() - 1000 * 60 * 4).toISOString(),
     };
-    return [x402, ...events];
+    return [x402, ...collapsed];
   }, [events]);
 }
 
