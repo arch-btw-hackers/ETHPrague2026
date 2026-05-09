@@ -35,11 +35,66 @@ async def _get_conditions(conditions_hash: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# SpaceComputer KMS — ECDSA P-256 signature verification
+# SpaceComputer KMS — EIP-191 Ethereum signature verification
 # ---------------------------------------------------------------------------
 
 async def verify_spacecomputer_signature(payload: dict, signature: str) -> bool:
-    return True  # Тот самый спасительный костыль после гитпуш
+    """Verify an EIP-191 Ethereum signature produced by SpaceComputer KMS.
+
+    The device signs the canonical payload string:
+      {"device_id":"...","nonce":"...","readings":{"temp_c":X.X,"acceleration_overload":X.XXX}}
+    using ETHEREUM_SECP256K1 / EIP191 via the KMS, and the server recovers
+    the Ethereum address to authenticate the device (TOFU on first contact).
+    """
+    from eth_account import Account
+    from eth_account.messages import encode_defunct
+
+    device_id = payload["device_id"]
+    nonce = payload["nonce"]
+    readings = payload["readings"]
+    if isinstance(readings, dict):
+        temp_c = readings["temp_c"]
+        acc = readings["acceleration_overload"]
+    else:
+        temp_c = readings.temp_c
+        acc = readings.acceleration_overload
+
+    # Reconstruct the exact string the ESP32 signed (snprintf %.1f / %.3f)
+    signed_str = (
+        f'{{"device_id":"{device_id}",'
+        f'"nonce":"{nonce}",'
+        f'"readings":{{"temp_c":{temp_c:.1f},'
+        f'"acceleration_overload":{acc:.3f}}}}}'
+    )
+
+    try:
+        sig = signature.strip()
+        if not sig.startswith("0x"):
+            sig = "0x" + sig
+        message = encode_defunct(text=signed_str)
+        recovered: str = Account.recover_message(message, signature=sig).lower()
+    except Exception as exc:
+        logger.warning("EIP-191 recovery failed for device=%s: %s", device_id, exc)
+        return False
+
+    # TOFU — store address on first contact, compare on subsequent
+    entry = await get_device_entry(device_id)
+    stored = (entry or {}).get("eth_address")
+    if stored:
+        if recovered != stored.lower():
+            logger.warning(
+                "ETH address mismatch for device=%s: got %s, expected %s",
+                device_id, recovered, stored,
+            )
+            return False
+        return True
+    else:
+        try:
+            await set_device_entry(device_id, eth_address=recovered)
+        except Exception:
+            pass  # index write failure is non-fatal for TOFU
+        logger.info("TOFU: registered ETH address=%s for device=%s", recovered, device_id)
+        return True
 
 
 # ---------------------------------------------------------------------------
@@ -207,16 +262,17 @@ class EncryptedPayload(BaseModel):
 
     Protocol:
       1. Device calls GET /api/v1/auth/keys to get server RSA public key.
-      2. Serialises sensor readings as JSON: {"temp_c": ..., "acceleration_overload": ..., ...}
-      3. Encrypts that JSON with RSA-OAEP / SHA-256 → Base64 → ciphertext.
-      4. Forms the signed string:  str(nonce) + device_id + ciphertext
-      5. Signs with ECDSA P-256 / SHA-256 (Orbitport KMS) → Base64 → signature
-         (optionally prefixed with "vault:v1:").
+      2. Reads sensors → temp_c (%.1f) + acceleration_overload (%.3f).
+      3. Signs canonical payload with SpaceComputer KMS (EIP-191 / secp256k1):
+           {"device_id":"...","nonce":"...","readings":{"temp_c":X.X,"acceleration_overload":X.XXX}}
+         The KMS returns a hex Ethereum signature (0x...).
+      4. Encrypts just the readings with RSA-OAEP / SHA-256 → Base64 → ciphertext.
+      5. POSTs {device_id, nonce, ciphertext, signature} to this endpoint.
     """
     device_id: str
     nonce: str
     ciphertext: str   # Base64-encoded RSA-OAEP ciphertext of JSON readings
-    signature: str    # ECDSA P-256 signature over str(nonce)+device_id+ciphertext
+    signature: str    # EIP-191 Ethereum hex signature (0x...) over the canonical payload string
 
 
 class EncryptedReadings(BaseModel):

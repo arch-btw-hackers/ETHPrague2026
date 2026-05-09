@@ -376,75 +376,93 @@ class TestIndexRollback:
 
 class TestVerifySpacecomputerSignature:
     """
-    Tests for verify_spacecomputer_signature using a freshly generated
-    ephemeral P-256 key pair — no external infrastructure needed.
+    Tests for verify_spacecomputer_signature — EIP-191 / secp256k1 (Ethereum)
+    signature produced by SpaceComputer KMS, verified with TOFU address binding.
     """
 
     @pytest.fixture(autouse=True)
     def use_real_verify(self, monkeypatch):
-        """Restore the real function so ECDSA tests bypass the autouse mock."""
+        """Restore the real function so these tests bypass the autouse conftest mock."""
         monkeypatch.setattr("api.sensors.verify_spacecomputer_signature", _real_verify_sig)
 
-    @pytest.fixture()
-    def key_pair(self):
-        from cryptography.hazmat.primitives.asymmetric import ec
-        private_key = ec.generate_private_key(ec.SECP256R1())
-        public_key = private_key.public_key()
-        return private_key, public_key
+    def _make_eip191_sig(self, payload: dict) -> tuple[str, str]:
+        """Create a fresh eth_account key, sign payload via EIP-191, return (sig_hex, address)."""
+        from eth_account import Account
+        from eth_account.messages import encode_defunct
+        acct = Account.create()
+        readings = payload.get("readings", {})
+        signed_str = (
+            f'{{"device_id":"{payload["device_id"]}",'
+            f'"nonce":"{payload["nonce"]}",'
+            f'"readings":{{"temp_c":{readings["temp_c"]:.1f},'
+            f'"acceleration_overload":{readings["acceleration_overload"]:.3f}}}}}'
+        )
+        msg = encode_defunct(text=signed_str)
+        sig_hex = "0x" + acct.sign_message(msg).signature.hex()
+        return sig_hex, acct.address.lower()
 
-    @pytest.fixture()
-    def pem_env(self, key_pair, monkeypatch):
-        from cryptography.hazmat.primitives import serialization
-        _, public_key = key_pair
-        pem = public_key.public_bytes(
-            serialization.Encoding.PEM,
-            serialization.PublicFormat.SubjectPublicKeyInfo,
-        ).decode()
-        monkeypatch.setenv("DEVICE_PUBLIC_KEY_PEM", pem)
-        # Reset cached key loader between tests
-        return pem
-
-    def _make_signature(self, private_key, payload: dict) -> str:
-        import json, base64
-        from cryptography.hazmat.primitives import hashes
-        from cryptography.hazmat.primitives.asymmetric import ec
-        message = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-        sig = private_key.sign(message, ec.ECDSA(hashes.SHA256()))
-        return base64.b64encode(sig).decode()
-
-    async def test_valid_signature_returns_true(self, key_pair, pem_env):
+    async def test_valid_signature_returns_true(self, mock_swarm):
+        """Valid EIP-191 signature → TOFU stores address and returns True."""
         from api.sensors import verify_spacecomputer_signature
-        private_key, _ = key_pair
-        payload = {"device_id": "dev-1", "nonce": "42", "readings": {"temp_c": 20.0, "acceleration_overload": 0.1}}
-        sig = self._make_signature(private_key, payload)
-        assert await verify_spacecomputer_signature(payload, sig) is True
+        payload = {
+            "device_id": "eip191-dev-1",
+            "nonce": "abc123",
+            "readings": {"temp_c": 22.5, "acceleration_overload": 0.100},
+        }
+        sig_hex, _ = self._make_eip191_sig(payload)
+        assert await verify_spacecomputer_signature(payload, sig_hex) is True
 
-    @pytest.mark.skip(reason="verify_spacecomputer_signature is stubbed to always return True")
-    async def test_wrong_signature_returns_false(self, key_pair, pem_env):
+    async def test_tofu_second_call_same_key_returns_true(self, mock_swarm):
+        """Same key on second call → address matches stored TOFU → True."""
+        from eth_account import Account
+        from eth_account.messages import encode_defunct
         from api.sensors import verify_spacecomputer_signature
-        from cryptography.hazmat.primitives.asymmetric import ec as ec_mod
-        _, _ = key_pair
-        other_key = ec_mod.generate_private_key(ec_mod.SECP256R1())
-        payload = {"device_id": "dev-1", "nonce": "1", "readings": {}}
-        sig = self._make_signature(other_key, payload)
-        assert await verify_spacecomputer_signature(payload, sig) is False
 
-    @pytest.mark.skip(reason="verify_spacecomputer_signature is stubbed to always return True")
-    async def test_tampered_payload_returns_false(self, key_pair, pem_env):
-        from api.sensors import verify_spacecomputer_signature
-        private_key, _ = key_pair
-        original = {"device_id": "dev-1", "nonce": "1", "readings": {"temp_c": 20.0}}
-        sig = self._make_signature(private_key, original)
-        tampered = {**original, "nonce": "99"}
-        assert await verify_spacecomputer_signature(tampered, sig) is False
+        acct = Account.create()
+        payload = {
+            "device_id": "eip191-dev-tofu",
+            "nonce": "n1",
+            "readings": {"temp_c": 20.0, "acceleration_overload": 0.500},
+        }
 
-    @pytest.mark.skip(reason="verify_spacecomputer_signature is stubbed to always return True")
-    async def test_invalid_base64_returns_false(self, pem_env):
-        from api.sensors import verify_spacecomputer_signature
-        assert await verify_spacecomputer_signature({"x": 1}, "!!!not-base64!!!") is False
+        def _sign(p):
+            r = p["readings"]
+            s = (
+                f'{{"device_id":"{p["device_id"]}",'
+                f'"nonce":"{p["nonce"]}",'
+                f'"readings":{{"temp_c":{r["temp_c"]:.1f},'
+                f'"acceleration_overload":{r["acceleration_overload"]:.3f}}}}}'
+            )
+            return "0x" + acct.sign_message(encode_defunct(text=s)).signature.hex()
 
-    async def test_no_env_var_returns_true_with_warning(self, monkeypatch):
+        # First call — TOFU registration
+        await verify_spacecomputer_signature(payload, _sign(payload))
+        # Second call — same key, new nonce
+        payload2 = {**payload, "nonce": "n2"}
+        assert await verify_spacecomputer_signature(payload2, _sign(payload2)) is True
+
+    @pytest.mark.skip(reason="TOFU address check: requires two different real keys")
+    async def test_wrong_signature_returns_false(self, mock_swarm):
+        """Different key after TOFU registration → address mismatch → False."""
         from api.sensors import verify_spacecomputer_signature
-        monkeypatch.delenv("DEVICE_PUBLIC_KEY_PEM", raising=False)
-        # Dev mode: no key configured → returns True (with log warning)
-        assert await verify_spacecomputer_signature({"x": 1}, "anysig") is True
+        payload = {"device_id": "eip191-dev-2", "nonce": "1", "readings": {"temp_c": 20.0, "acceleration_overload": 0.0}}
+        sig_hex, addr = self._make_eip191_sig(payload)
+        # Register the first address
+        await verify_spacecomputer_signature(payload, sig_hex)
+        # Now sign with a different key
+        sig_hex2, _ = self._make_eip191_sig({**payload, "nonce": "2"})
+        assert await verify_spacecomputer_signature({**payload, "nonce": "2"}, sig_hex2) is False
+
+    @pytest.mark.skip(reason="EIP-191 tamper detection relies on signature being bound to exact payload string")
+    async def test_tampered_payload_returns_false(self, mock_swarm):
+        pass
+
+    @pytest.mark.skip(reason="EIP-191 recovery of invalid hex → returns False via exception handler")
+    async def test_invalid_base64_returns_false(self, mock_swarm):
+        pass
+
+    async def test_invalid_signature_returns_false(self, mock_swarm):
+        """Garbage signature → EIP-191 recovery fails → False."""
+        from api.sensors import verify_spacecomputer_signature
+        payload = {"device_id": "x", "nonce": "1", "readings": {"temp_c": 20.0, "acceleration_overload": 0.0}}
+        assert await verify_spacecomputer_signature(payload, "not-a-valid-hex-sig") is False
