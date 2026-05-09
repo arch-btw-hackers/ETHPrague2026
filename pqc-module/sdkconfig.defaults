@@ -1,0 +1,39 @@
+# ── Task stacks ───────────────────────────────────────────────────────────
+# ML-DSA sign() needs ~7.5 KB of additional stack — set main task to 16 KB.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
+
+# ── NVS encryption ────────────────────────────────────────────────────────
+# Requires flash encryption to be enabled (see below).
+CONFIG_NVS_ENCRYPTION=y
+
+# ── Flash encryption ──────────────────────────────────────────────────────
+# DEVELOPMENT mode: encryption enabled but reflashing still possible.
+# Change to CONFIG_FLASH_ENCRYPTION_MODE_RELEASE=y before shipping.
+CONFIG_FLASH_ENCRYPTION_MODE_DEVELOPMENT=y
+
+# ── Hardware acceleration ─────────────────────────────────────────────────
+# AES hardware unit (ESP32-S3 supports AES-128/192/256, ESP32 AES-128/256).
+CONFIG_MBEDTLS_HARDWARE_AES=y
+# SHA hardware unit.
+CONFIG_MBEDTLS_HARDWARE_SHA=y
+
+# ── mbedTLS trimming ──────────────────────────────────────────────────────
+# Disable unused algorithms to save flash (~30 KB savings).
+CONFIG_MBEDTLS_RC4=n
+CONFIG_MBEDTLS_DES=n
+CONFIG_MBEDTLS_SSL_PROTO_DTLS=n
+CONFIG_MBEDTLS_ECP_DP_CURVE25519_ENABLED=n
+CONFIG_MBEDTLS_ECP_DP_CURVE448_ENABLED=n
+
+# Keep buffer sizes minimal — we only need short-lived TLS connections.
+CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=8192
+CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=8192
+
+# ── Wi-Fi ─────────────────────────────────────────────────────────────────
+CONFIG_WIFI_SSID="your_ssid"
+CONFIG_WIFI_PASSWORD="your_password"
+CONFIG_BACKEND_URL="https://your-backend/telemetry"
+
+# ── Secure boot (enable after firmware is stable) ─────────────────────────
+# CONFIG_SECURE_BOOT=y
+# CONFIG_SECURE_BOOT_SIGNING_KEY="secure_boot_signing_key.pem"
