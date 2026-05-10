@@ -3,8 +3,9 @@ import "./globals.css";
 import "./map-styles.css";
 
 export const metadata: Metadata = {
-  title: "VibeTrack — RWA Intelligence Hub",
+  title: "Eliver",
   description: "Real-time monitoring for high-value tokenised shipments.",
+  icons: { icon: "/favicon.jpg" },
 };
 
 export default function RootLayout({

@@ -193,7 +193,15 @@ export function SensorChart({
                   color: "#E6E9EF",
                 }}
                 labelStyle={{ color: "rgba(255,255,255,0.4)", marginBottom: 2 }}
-                labelFormatter={(ts) => new Date(ts as number).toLocaleTimeString()}
+                labelFormatter={(ts) => {
+                  const d = new Date(ts as number);
+                  return d.toLocaleString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  });
+                }}
                 formatter={(v: unknown, name) => {
                   if (v == null) return ["—", name as string];
                   const n = Number(v);

@@ -117,6 +117,32 @@ const ETH_PATH_TOP =
   "M 32 0 L 0 52 L 32 38 L 64 52 Z";
 const ETH_PATH_BOTTOM = "M 32 96 L 0 60 L 32 78 L 64 60 Z";
 
+/**
+ * Generic shipment-like input the report renderer needs. Decoupled from
+ * Prisma so external (proxied) devices can produce the same PDF.
+ */
+export interface ReportShipment {
+  trackingCode: string;
+  asset: string;
+  origin: string;
+  destination: string;
+  status: string;
+  maxTempC: number;
+  maxShockG: number;
+  contractAddress: string | null;
+  chainId: number | null;
+  payerAddress: string | null;
+  carrierAddress: string | null;
+  /** Newest-first list of recent samples (~last 120). */
+  telemetries: Array<{
+    tempC: number;
+    shockG: number;
+    lat: number | null;
+    lng: number | null;
+    recordedAt: Date | string;
+  }>;
+}
+
 export async function renderReport(shipmentId: string): Promise<Buffer> {
   const shipment = await prisma.shipment.findUniqueOrThrow({
     where: { id: shipmentId },
@@ -125,7 +151,35 @@ export async function renderReport(shipmentId: string): Promise<Buffer> {
     },
   });
   const insight = await getInsight(shipmentId, false);
+  return renderReportFromData(
+    {
+      trackingCode: shipment.trackingCode,
+      asset: shipment.asset,
+      origin: shipment.origin,
+      destination: shipment.destination,
+      status: shipment.status,
+      maxTempC: shipment.maxTempC,
+      maxShockG: shipment.maxShockG,
+      contractAddress: shipment.contractAddress,
+      chainId: shipment.chainId,
+      payerAddress: shipment.payerAddress,
+      carrierAddress: shipment.carrierAddress,
+      telemetries: shipment.telemetries.map((t) => ({
+        tempC: t.tempC,
+        shockG: t.shockG,
+        lat: t.lat,
+        lng: t.lng,
+        recordedAt: t.recordedAt,
+      })),
+    },
+    insight
+  );
+}
 
+export async function renderReportFromData(
+  shipment: ReportShipment,
+  insight: import("./insights").Insight
+): Promise<Buffer> {
   const doc = new PDFDocument({ size: "A4", margin: 56 });
   const chunks: Buffer[] = [];
   doc.on("data", (c) => chunks.push(c as Buffer));
@@ -268,6 +322,38 @@ export async function renderReport(shipmentId: string): Promise<Buffer> {
 
   y += 6;
 
+  // ---------- Sparkline charts (Temp & Shock, oldest → newest) ----------
+  if (shipment.telemetries.length >= 2) {
+    const oldFirst = [...shipment.telemetries].reverse();
+    const tempsLine = oldFirst.map((t) => t.tempC);
+    const shocksLine = oldFirst.map((t) => t.shockG);
+    const chartW = (CONTENT_W - 20) / 2;
+    const chartH = 70;
+    drawSparkChart(
+      doc,
+      tempsLine,
+      MARGIN,
+      y,
+      chartW,
+      chartH,
+      "TEMPERATURE  C",
+      shipment.maxTempC,
+      "#0E7C7B"
+    );
+    drawSparkChart(
+      doc,
+      shocksLine,
+      MARGIN + chartW + 20,
+      y,
+      chartW,
+      chartH,
+      "SHOCK  G",
+      shipment.maxShockG,
+      "#7B8CFF"
+    );
+    y += chartH + 24;
+  }
+
   // ---------- AI Executive Summary ----------
   y = drawSectionLabel(doc, "EXECUTIVE SUMMARY", MARGIN, y) + 12;
   doc.fillColor("#0B0D10").font("Helvetica").fontSize(11)
@@ -352,4 +438,84 @@ function drawKV(
     .text(k.toUpperCase(), x, y, { characterSpacing: 2 });
   doc.fillColor("#0B0D10").font("Helvetica").fontSize(10)
     .text(v, x, y + 12, { width, ellipsis: true, height: 14 });
+}
+
+/**
+ * Mini sparkline-style line chart: framed box with axis-implied scale,
+ * threshold line, and filled area under the curve. Used for the report's
+ * temperature & shock visual envelope.
+ */
+function drawSparkChart(
+  doc: PDFKit.PDFDocument,
+  values: number[],
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  label: string,
+  threshold: number | null,
+  stroke: string
+) {
+  // Frame
+  doc.roundedRect(x, y, w, h, 6)
+    .lineWidth(0.5).strokeColor("#D7DBE2").fillAndStroke("#FAFBFC", "#D7DBE2");
+
+  // Title
+  doc.fillColor("#9099AA").font("Helvetica").fontSize(7.5)
+    .text(label, x + 10, y + 8, { characterSpacing: 2, width: w - 80 });
+
+  if (values.length < 2) return;
+
+  const padL = 30, padR = 10, padT = 22, padB = 14;
+  const innerX = x + padL;
+  const innerY = y + padT;
+  const innerW = w - padL - padR;
+  const innerH = h - padT - padB;
+
+  let lo = Math.min(...values);
+  let hi = Math.max(...values);
+  if (threshold != null && Number.isFinite(threshold)) hi = Math.max(hi, threshold);
+  if (hi - lo < 1e-6) { lo -= 1; hi += 1; }
+  const pad = (hi - lo) * 0.08;
+  lo -= pad; hi += pad;
+
+  const yFor = (v: number) => innerY + innerH - ((v - lo) / (hi - lo)) * innerH;
+  const xFor = (i: number) => innerX + (i / (values.length - 1)) * innerW;
+
+  // Min/max ticks (left axis)
+  doc.fillColor("#9099AA").font("Helvetica").fontSize(6.5)
+    .text(hi.toFixed(1), x + 4, innerY - 2, { width: padL - 6, align: "right" })
+    .text(lo.toFixed(1), x + 4, innerY + innerH - 6, { width: padL - 6, align: "right" });
+
+  // Threshold line
+  if (threshold != null && Number.isFinite(threshold) && threshold <= hi && threshold >= lo) {
+    const ty = yFor(threshold);
+    doc.save();
+    doc.lineWidth(0.6).strokeColor("#D9480F").dash(3, { space: 2 });
+    doc.moveTo(innerX, ty).lineTo(innerX + innerW, ty).stroke();
+    doc.restore();
+    doc.fillColor("#D9480F").font("Helvetica").fontSize(6)
+      .text(`max ${threshold}`, innerX + innerW - 40, ty - 8, { width: 40, align: "right" });
+  }
+
+  // Filled area under curve
+  doc.save();
+  doc.moveTo(xFor(0), innerY + innerH);
+  for (let i = 0; i < values.length; i++) doc.lineTo(xFor(i), yFor(values[i]));
+  doc.lineTo(xFor(values.length - 1), innerY + innerH).closePath();
+  doc.fillOpacity(0.12).fillColor(stroke).fill();
+  doc.restore();
+
+  // Stroke line
+  doc.save();
+  doc.lineWidth(1.2).strokeColor(stroke);
+  doc.moveTo(xFor(0), yFor(values[0]));
+  for (let i = 1; i < values.length; i++) doc.lineTo(xFor(i), yFor(values[i]));
+  doc.stroke();
+  doc.restore();
+
+  // Last value dot
+  const lx = xFor(values.length - 1);
+  const ly = yFor(values[values.length - 1]);
+  doc.circle(lx, ly, 2).fillColor(stroke).fill();
 }

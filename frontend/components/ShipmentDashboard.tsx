@@ -19,10 +19,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
+import Link from "next/link";
 import {
+  ArrowLeft,
   Check,
   Copy,
   Gavel,
+  Radio,
   ShieldCheck,
   ShieldX,
   X,
@@ -56,6 +59,7 @@ export default function ShipmentDashboard({
   trackingCode,
   apiBase,
   readOnly = false,
+  showDevicesLink = false,
 }: {
   trackingCode: string;
   /** Override the API root. Defaults to `/api/shipments/<trackingCode>`.
@@ -64,6 +68,8 @@ export default function ShipmentDashboard({
   /** Hide write actions (Dispute / Judge / Report) — used for external
    *  read-only feeds where those endpoints don't exist. */
   readOnly?: boolean;
+  /** Show “Live devices” link in the top bar. */
+  showDevicesLink?: boolean;
 }) {
   const base = apiBase ?? `/api/shipments/${trackingCode}`;
   const { data, error, isLoading, mutate } = useSWR<ShipmentDetail>(
@@ -97,20 +103,23 @@ export default function ShipmentDashboard({
   const tele = data?.telemetries ?? [];
   const now = Date.now();
 
-  // Domain: weight the bar so HISTORY dominates and the future is a smaller
-  // tail to the right of NOW (~65% past / ~35% future). Past span = how
+  // Domain: weight the bar so HISTORY dominates and the future is a healthy
+  // tail to the right of NOW (~60% past / ~40% future). Past span = how
   // long the shipment has been observed (with a generous floor so a fresh
-  // shipment still has a usable scrub area). Future span = capped fraction
-  // of the past so NOW is always anchored well into the right half.
+  // shipment still has a usable scrub area). Future span = the larger of
+  // the ETA distance and a generous fraction of past, so NOW always sits
+  // around 60% of the bar even when ETA is missing.
   const firstT = tele.length
     ? new Date(tele[0].recordedAt).getTime()
     : now - 3_600_000;
-  const etaT = data?.etaAt ? new Date(data.etaAt).getTime() : now + 3_600_000;
+  const etaT = data?.etaAt ? new Date(data.etaAt).getTime() : null;
   const MIN_PAST_MS = 24 * 3_600_000; // always show at least 24h of history
   const pastSpan = Math.max(now - firstT, MIN_PAST_MS);
+  // Always reserve ~⅔ of past as forward room (caps the bar at ~60/40).
+  const FUTURE_FLOOR = Math.round(pastSpan * 0.66);
   const futureSpan = Math.min(
-    Math.max(etaT - now, 30 * 60_000),
-    Math.round(pastSpan * 0.55),
+    Math.max(etaT != null ? etaT - now : FUTURE_FLOOR, FUTURE_FLOOR),
+    Math.round(pastSpan * 0.85),
   );
   const domainStart = now - pastSpan;
   const domainEnd = now + futureSpan;
@@ -142,34 +151,23 @@ export default function ShipmentDashboard({
     return () => clearTimeout(id);
   }, [futureBucket]);
 
-  // Map marker position derived from scrub time. The route is the source
-  // of truth: past anchors at the route's origin (e.g. Prague), live
-  // tracks the simulator's current routeIndex, and future glides toward
-  // the route's destination (e.g. Malaga). Charts may not have data
-  // covering the full domain, but the marker always lands on the road.
+  // Map marker position derived from scrub time.
+  // Simple linear mapping: domainStart → Prague (route[0]),
+  // domainEnd → Málaga (route[lastIdx]).
+  // NOW sits at ~60% of the bar so the live marker is ~60% through the road.
+  // Scrubbing left approaches Prague; scrubbing right approaches Málaga.
   const scrubTele = useMemo<Telemetry | undefined>(() => {
     if (!tele.length) return undefined;
     const head = tele[tele.length - 1];
     const route = (data?.routePath ?? []) as [number, number][];
     if (route.length < 2) return head;
     const lastIdx = route.length - 1;
-    const headIdx = Math.min(Math.max(0, data?.routeIndex ?? 0), lastIdx);
 
-    // Map t → fractional route index.
-    let frac: number;
-    if (mode === "live") {
-      frac = headIdx;
-    } else if (mode === "past") {
-      // domainStart → 0, now → headIdx
-      const span = now - domainStart;
-      const r = span > 0 ? Math.min(1, Math.max(0, (t - domainStart) / span)) : 1;
-      frac = r * headIdx;
-    } else {
-      // now → headIdx, domainEnd → lastIdx
-      const span = domainEnd - now;
-      const r = span > 0 ? Math.min(1, Math.max(0, (t - now) / span)) : 0;
-      frac = headIdx + r * (lastIdx - headIdx);
-    }
+    const totalSpan = domainEnd - domainStart;
+    const r = totalSpan > 0
+      ? Math.min(1, Math.max(0, (t - domainStart) / totalSpan))
+      : 1;
+    const frac = r * lastIdx;
     const i0 = Math.floor(frac);
     const i1 = Math.min(lastIdx, i0 + 1);
     const f = frac - i0;
@@ -178,7 +176,7 @@ export default function ShipmentDashboard({
     const lng = a[0] + (b[0] - a[0]) * f;
     const lat = a[1] + (b[1] - a[1]) * f;
     return { ...head, lat, lng, recordedAt: new Date(t).toISOString() };
-  }, [tele, t, mode, data?.routePath, data?.routeIndex, domainStart, domainEnd, now]);
+  }, [tele, t, data?.routePath, domainStart, domainEnd]);
 
   // Hourly averages over historical telemetry — kept for chart slicing.
   const hourly = useMemo(() => {
@@ -217,6 +215,22 @@ export default function ShipmentDashboard({
   }, [tele]);
 
   const liveSample = tele[tele.length - 1];
+
+  // Peak shock over the trailing 60 s window. The SHOCK readout is meant to
+  // surface the worst impact in recent history, not just whatever the device
+  // happened to report this tick (which is usually near 1 g of gravity).
+  const liveShockMax = useMemo(() => {
+    if (!tele.length) return undefined;
+    const cutoff = Date.now() - 60_000;
+    let peak = -Infinity;
+    for (const s of tele) {
+      const ts = new Date(s.recordedAt).getTime();
+      if (ts < cutoff) continue;
+      const g = s.shockG ?? 0;
+      if (g > peak) peak = g;
+    }
+    return Number.isFinite(peak) ? peak : (liveSample?.shockG ?? 0);
+  }, [tele, liveSample]);
 
   // Past readouts. We don't have ground-truth values for every historical
   // hour, but the user wants the numbers to react instantly while scrubbing.
@@ -324,7 +338,7 @@ export default function ShipmentDashboard({
     if (mode === "live") {
       return {
         temp: liveSample?.tempC,
-        shock: liveSample?.shockG,
+        shock: liveShockMax,
         hum: liveSample?.humidity ?? undefined,
         speed: liveSample?.speedKph ?? undefined,
       };
@@ -382,6 +396,7 @@ export default function ShipmentDashboard({
               onDispute={() => run("dispute")}
               onJudge={() => run("judge")}
               readOnly={readOnly}
+              showDevicesLink={showDevicesLink}
             />
             {banner}
           </>
@@ -392,7 +407,7 @@ export default function ShipmentDashboard({
 
       <section className="mt-6 grid gap-5 lg:grid-cols-3 lg:[grid-template-rows:1fr]">
         <div className="lg:col-span-2 flex flex-col gap-3">
-          <LiveMap shipment={data} scrubTelemetry={isLive ? null : scrubTele} />
+          <LiveMap shipment={data} scrubTelemetry={scrubTele} />
           <TimelineScrubber
             domainStart={domainStart}
             domainEnd={domainEnd}
@@ -414,7 +429,6 @@ export default function ShipmentDashboard({
             trackingCode={trackingCode}
             apiBase={base}
             panic={!!compromised}
-            hideReport={readOnly}
           />
         </div>
       </section>
@@ -504,12 +518,14 @@ function TopBar({
   onDispute,
   onJudge,
   readOnly = false,
+  showDevicesLink = false,
 }: {
   data: ShipmentDetail;
   compromised: boolean;
   onDispute: () => void;
   onJudge: () => void;
   readOnly?: boolean;
+  showDevicesLink?: boolean;
 }) {
   return (
     <div className="sticky top-3 z-30 mb-6 flex items-center gap-3 rounded-full border border-white/[0.06] bg-black/70 px-4 py-2 backdrop-blur-xl">
@@ -518,10 +534,28 @@ function TopBar({
         {data.trackingCode}
       </span>
       <div className="ml-auto flex items-center gap-2">
+        {showDevicesLink && (
+          <Link
+            href="/devices"
+            className="group hidden items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.02] px-3 py-1 font-mono text-[10px] uppercase tracking-[0.28em] text-white/55 transition hover:border-cyan/40 hover:text-cyan sm:inline-flex"
+          >
+            <Radio className="h-3 w-3" />
+            Live devices
+          </Link>
+        )}
         {readOnly ? (
-          <span className="rounded-full border border-white/10 bg-white/[0.02] px-3 py-1 font-mono text-[9px] uppercase tracking-[0.28em] text-white/45">
-            External · Read-only
-          </span>
+          <>
+            <Link
+              href="/"
+              className="group inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.02] px-3 py-1 font-mono text-[10px] uppercase tracking-[0.28em] text-white/55 transition hover:border-cyan/40 hover:text-cyan"
+            >
+              <ArrowLeft className="h-3 w-3" />
+              Hub
+            </Link>
+            <span className="rounded-full border border-white/10 bg-white/[0.02] px-3 py-1 font-mono text-[9px] uppercase tracking-[0.28em] text-white/45">
+              External · Read-only
+            </span>
+          </>
         ) : (
           <>
             <ActionButton
@@ -668,15 +702,6 @@ function ActionRunner({
 // ── Hero — single line, no duplication ─────────────────────────────────
 
 function Hero({ data, compromised }: { data: ShipmentDetail; compromised: boolean }) {
-  const eta = data.etaAt ? new Date(data.etaAt) : null;
-  const remainMs = eta ? eta.getTime() - Date.now() : 0;
-  const remain =
-    remainMs > 0
-      ? `${Math.floor(remainMs / 3_600_000)}h ${Math.floor(
-          (remainMs % 3_600_000) / 60_000
-        )}m`
-      : null;
-
   return (
     <header className="mb-6">
       <motion.h1
@@ -692,21 +717,6 @@ function Hero({ data, compromised }: { data: ShipmentDetail; compromised: boolea
         <span>{data.origin.split(",")[0]}</span>
         <span className={compromised ? "text-warn" : "text-cyan"}>→</span>
         <span>{data.destination.split(",")[0]}</span>
-        {eta && (
-          <>
-            <span className="text-white/20">·</span>
-            <span className="text-white/65">
-              ETA{" "}
-              {eta.toLocaleString(undefined, {
-                day: "2-digit",
-                month: "short",
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            </span>
-            {remain && <span className="text-white/35">· {remain}</span>}
-          </>
-        )}
       </div>
     </header>
   );
@@ -929,7 +939,7 @@ function HardwareBadge({ compromised }: { compromised: boolean }) {
   );
 }
 
-// ── Timeline (with x402 entry) ──────────────────────────────────────────
+// ── Timeline ────────────────────────────────────────────────────────────
 
 function useMemoEnrichment(events: TimelineEvent[]): TimelineEvent[] {
   return useMemo(() => {
@@ -965,15 +975,7 @@ function useMemoEnrichment(events: TimelineEvent[]): TimelineEvent[] {
         collapsed.push(ev);
       }
     }
-    const x402: TimelineEvent = {
-      id: "synthetic-x402",
-      kind: "AGENTIC_PAYMENT",
-      violation: null,
-      message: "Agent paid 0.05 USDC to Apify for context verification (x402).",
-      meta: { protocol: "x402", recipient: "apify.eth", amount: "0.05 USDC" },
-      createdAt: new Date(Date.now() - 1000 * 60 * 4).toISOString(),
-    };
-    return [x402, ...collapsed];
+    return collapsed;
   }, [events]);
 }
 
