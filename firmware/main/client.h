@@ -8,6 +8,11 @@
 esp_err_t client_fetch_pubkey(void);
 
 /**
+ * Initialize the status LED.
+ */
+void client_led_init(void);
+
+/**
  * Encrypt readings_json with the server RSA key (OAEP/SHA-256),
  * and write the base64 ciphertext into out_ct_b64.
  */

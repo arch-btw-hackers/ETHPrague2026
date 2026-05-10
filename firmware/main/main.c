@@ -117,6 +117,7 @@ static void report_task(void *arg)
 void app_main(void)
 {
     /* 1. Init sensor */
+    client_led_init();
     if (sensor_init() != ESP_OK) {
         ESP_LOGE(TAG, "Sensor init failed");
         return;

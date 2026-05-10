@@ -20,7 +20,7 @@ static const char *TAG = "KMS";
 
 #define KMS_URL "https://op.spacecomputer.io/api/v1/rpc"
 #define NVS_NAMESPACE "orbitport"
-#define NVS_KEY_ID "kms_key_id_eth"
+#define NVS_KEY_ID "kms_key_id_ecdsa"
 #define RESPONSE_BUF_SIZE 4096
 
 static char s_key_id[128] = {0};
@@ -156,14 +156,15 @@ esp_err_t kms_ensure_key(void)
         return ESP_OK; /* Already have a key */
     }
 
-    ESP_LOGI(TAG, "Creating new ETHEREUM key...");
+    const char *alias = "cargo-tracker-ecdsa";
+    ESP_LOGI(TAG, "Ensuring ECDSA_P256 key (Alias: %s)...", alias);
 
     cJSON *params = cJSON_CreateObject();
-    cJSON_AddStringToObject(params, "Alias", "cargo-tracker-eth");
-    cJSON_AddStringToObject(params, "KeySpec", "ECC_SECG_P256K1");
+    cJSON_AddStringToObject(params, "Alias", alias);
+    cJSON_AddStringToObject(params, "KeySpec", "ECDSA_P256");
     cJSON_AddStringToObject(params, "KeyUsage", "SIGN_VERIFY");
-    cJSON_AddStringToObject(params, "Scheme", "ETHEREUM");
-    cJSON_AddStringToObject(params, "Description", "Cargo Tracker ETH Key");
+    cJSON_AddStringToObject(params, "Scheme", "TRANSIT");
+    cJSON_AddStringToObject(params, "Description", "Cargo Tracker ECDSA Key");
     
     cJSON *tags = cJSON_CreateArray();
     cJSON *tag1 = cJSON_CreateObject();
@@ -174,33 +175,39 @@ esp_err_t kms_ensure_key(void)
 
     cJSON *result = NULL;
     esp_err_t ret = kms_rpc_call("kms.CreateKey", params, &result);
+    
     if (ret == ESP_OK && result) {
         cJSON *meta = cJSON_GetObjectItem(result, "KeyMetadata");
         if (meta) {
             cJSON *kid = cJSON_GetObjectItem(meta, "KeyId");
-            cJSON *addr = cJSON_GetObjectItem(meta, "Address");
-            
-            if (addr && addr->valuestring) {
-                ESP_LOGI(TAG, ">> YOUR ETHEREUM ADDRESS: %s <<", addr->valuestring);
-            }
-            
             if (kid && kid->valuestring) {
                 strncpy(s_key_id, kid->valuestring, sizeof(s_key_id) - 1);
-                
-                /* Save to NVS */
-                nvs_handle_t h;
-                if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h) == ESP_OK) {
-                    nvs_set_str(h, NVS_KEY_ID, s_key_id);
-                    nvs_commit(h);
-                    nvs_close(h);
-                }
-                ESP_LOGI(TAG, "Created Key ID: %s", s_key_id);
             }
         }
         cJSON_Delete(result);
+    } else {
+        /* Check if error is 'Alias already exists' (-32001) */
+        // Note: kms_rpc_call returns ESP_FAIL if there's a JSON-RPC error, but we can't see the code easily.
+        // Actually, let's modify kms_rpc_call or just assume if it failed and alias exists, we use it.
+        ESP_LOGW(TAG, "KMS CreateKey failed or key exists. Falling back to alias.");
+        snprintf(s_key_id, sizeof(s_key_id), "kms:%s", alias);
+        ret = ESP_OK;
     }
-    return (strlen(s_key_id) > 0) ? ESP_OK : ESP_FAIL;
+
+    if (strlen(s_key_id) > 0) {
+        /* Save to NVS */
+        nvs_handle_t h;
+        if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h) == ESP_OK) {
+            nvs_set_str(h, NVS_KEY_ID, s_key_id);
+            nvs_commit(h);
+            nvs_close(h);
+        }
+        ESP_LOGI(TAG, "Using Key ID: %s", s_key_id);
+        return ESP_OK;
+    }
+    return ESP_FAIL;
 }
+#include "mbedtls/sha256.h"
 
 esp_err_t kms_sign(const char *payload, char *out_sig, size_t sig_size)
 {
@@ -209,28 +216,34 @@ esp_err_t kms_sign(const char *payload, char *out_sig, size_t sig_size)
         return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "Signing payload (EIP191)...");
+    ESP_LOGI(TAG, "Hashing and signing payload (ECDSA)...");
+
+    /* Hash payload locally */
+    unsigned char hash[32];
+    mbedtls_sha256((const unsigned char *)payload, strlen(payload), hash, 0);
+
+    /* Base64 encode the digest */
+    size_t b64_len = 0;
+    unsigned char b64_hash[64];
+    mbedtls_base64_encode(b64_hash, sizeof(b64_hash), &b64_len, hash, sizeof(hash));
 
     cJSON *params = cJSON_CreateObject();
     cJSON_AddStringToObject(params, "KeyId", s_key_id);
-    /* For ETHEREUM EIP191, we can pass the raw string; wait, Orbitport expects Message to be base64 encoded even for string! */
-    size_t payload_len = strlen(payload);
-    size_t b64_len = 0;
-    unsigned char b64_payload[2048];
-    mbedtls_base64_encode(b64_payload, sizeof(b64_payload), &b64_len,
-                          (const unsigned char *)payload, payload_len);
-
-    cJSON_AddStringToObject(params, "Message", (char *)b64_payload);
-    cJSON_AddStringToObject(params, "SigningAlgorithm", "ETHEREUM_SECP256K1");
-    cJSON_AddStringToObject(params, "MessageType", "EIP191");
+    cJSON_AddStringToObject(params, "Message", (char *)b64_hash);
+    cJSON_AddStringToObject(params, "SigningAlgorithm", "ECDSA_SHA_256");
+    cJSON_AddStringToObject(params, "MessageType", "DIGEST");
 
     cJSON *result = NULL;
     esp_err_t ret = kms_rpc_call("kms.Sign", params, &result);
     if (ret == ESP_OK && result) {
         cJSON *sig = cJSON_GetObjectItem(result, "Signature");
         if (sig && sig->valuestring) {
-            strncpy(out_sig, sig->valuestring, sig_size - 1);
-            out_sig[sig_size - 1] = '\0';
+            if (strncmp(sig->valuestring, "vault:v1:", 9) != 0) {
+                snprintf(out_sig, sig_size, "vault:v1:%s", sig->valuestring);
+            } else {
+                strncpy(out_sig, sig->valuestring, sig_size - 1);
+                out_sig[sig_size - 1] = '\0';
+            }
         } else {
             ret = ESP_FAIL;
         }

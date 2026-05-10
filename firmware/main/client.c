@@ -8,7 +8,12 @@
 #include "mbedtls/rsa.h"
 #include "mbedtls/base64.h"
 
+#include "mbedtls/entropy.h"
+#include "driver/gpio.h"
+
 static const char *TAG = "CLIENT";
+
+#define STATUS_LED_GPIO GPIO_NUM_21  /* Change this to your board's LED pin */
 
 #define SERVER_HOST "http://80.211.207.162:8000"
 #define PUBKEY_URL  SERVER_HOST "/api/v1/auth/keys"
@@ -22,6 +27,20 @@ static int hw_random(void *p_rng, unsigned char *output, size_t output_len)
     (void)p_rng;
     esp_fill_random(output, output_len);
     return 0;
+}
+
+void client_led_init(void)
+{
+    gpio_reset_pin(STATUS_LED_GPIO);
+    gpio_set_direction(STATUS_LED_GPIO, GPIO_MODE_OUTPUT);
+    gpio_set_level(STATUS_LED_GPIO, 1); /* Start OFF for inverted LED */
+}
+
+void client_led_blink(void)
+{
+    gpio_set_level(STATUS_LED_GPIO, 0); /* ON (Active Low) */
+    vTaskDelay(pdMS_TO_TICKS(100));
+    gpio_set_level(STATUS_LED_GPIO, 1); /* OFF */
 }
 
 /* ------------------------------------------------------------------ */
@@ -62,12 +81,18 @@ esp_err_t client_fetch_pubkey(void)
     /* Parse: {"public_key":"-----BEGIN PUBLIC KEY-----\n..."} */
     cJSON *root = cJSON_Parse(resp_buf);
     if (!root) {
-        ESP_LOGE(TAG, "JSON parse failed");
+        ESP_LOGE(TAG, "JSON parse failed. Body: %s", resp_buf);
         return ESP_FAIL;
     }
+    
+    /* Check for 'public_key' or 'server_public_key' */
     cJSON *pk = cJSON_GetObjectItem(root, "public_key");
+    if (!pk) {
+        pk = cJSON_GetObjectItem(root, "server_public_key");
+    }
+
     if (!pk || !pk->valuestring) {
-        ESP_LOGE(TAG, "No public_key in response");
+        ESP_LOGE(TAG, "No public_key field in response. Full body: %s", resp_buf);
         cJSON_Delete(root);
         return ESP_FAIL;
     }
@@ -168,6 +193,18 @@ esp_err_t client_post(const char *device_id,
     if (err == ESP_OK) {
         int status = esp_http_client_get_status_code(client);
         ESP_LOGI(TAG, "Server responded HTTP %d", status);
+        
+        /* Print response body */
+        char resp_buf[512] = {0};
+        int read_len = esp_http_client_read(client, resp_buf, sizeof(resp_buf) - 1);
+        if (read_len > 0) {
+            resp_buf[read_len] = '\0';
+            ESP_LOGI(TAG, "Response Body: %s", resp_buf);
+        }
+
+        if (status == 200) {
+            client_led_blink();
+        }
     } else {
         ESP_LOGE(TAG, "POST failed: %s", esp_err_to_name(err));
     }
