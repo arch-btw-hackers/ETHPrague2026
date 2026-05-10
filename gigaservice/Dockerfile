@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
             -GNinja \
             -DBUILD_SHARED_LIBS=ON \
             -DOQS_MINIMAL_BUILD="KEM_kyber_768" \
+            -DOQS_USE_OPENSSL=OFF \
             -DCMAKE_BUILD_TYPE=Release \
     && cmake --build /tmp/liboqs/build \
     && cmake --install /tmp/liboqs/build \
