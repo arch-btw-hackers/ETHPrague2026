@@ -1,10 +1,85 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { useAccount, useSignMessage } from 'wagmi';
 import './AlzaPayment.css';
 
 const AlzaPayment = () => {
     const navigate = useNavigate();
+    const { address, isConnected } = useAccount();
+    const { signMessageAsync } = useSignMessage();
+
+    const [temp, setTemp] = useState('23');
+    const [overload, setOverload] = useState('5');
+    const [status, setStatus] = useState('');
+
+
+    const handleAuthAndSend = async () => {
+        if (!isConnected) {
+            alert("Please connect your wallet first!");
+            return;
+        }
+
+        try {
+            setStatus('Getting nonce...');
+            const nonceRes = await fetch(`http://80.211.207.162:8000/api/v1/auth/nonce?wallet_address=${address}`);
+            const nonceData = await nonceRes.json();
+            const serverNonce = nonceData.nonce;
+
+            const domain = window.location.host;
+            const origin = window.location.origin;
+            const issuedAt = new Date().toISOString();
+
+            const siweMessage = `${domain} wants you to sign in with your Ethereum account:
+${address}
+
+I accept the Alza Terms of Service.
+
+URI: ${origin}
+Version: 1
+Chain ID: 1
+Nonce: ${serverNonce}
+Issued At: ${issuedAt}`;
+
+            setStatus('Please sign message...');
+            const signature = await signMessageAsync({ message: siweMessage });
+
+            setStatus('Verifying...');
+            const finalPayload = {
+                message: siweMessage,
+                signature: signature,
+                wallet_address: address,
+                payload: {
+                    device_id: "cargo_tracker_9000",
+                    nonce: serverNonce,
+                    readings: {
+                        temp_c: parseFloat(temp),
+                        acceleration_overload: parseFloat(overload)
+                    }
+                }
+            };
+
+            const response = await fetch('http://80.211.207.162:8000/api/v1/auth/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(finalPayload),
+            });
+
+            const resultData = await response.json();
+
+            if (response.ok) {
+                setStatus('Success!');
+                alert("Order processed and signed successfully!");
+            } else {
+                const errorMsg = typeof resultData.detail === 'object'
+                    ? JSON.stringify(resultData.detail)
+                    : resultData.detail;
+                setStatus(`Error: ${errorMsg || 'Verification failed'}`);
+            }
+        } catch (error) {
+            setStatus(`Error: ${error.message || 'Server unavailable'}`);
+        }
+    };
 
     return (
         <div className="alza-checkout-page">
@@ -58,18 +133,34 @@ const AlzaPayment = () => {
                     <h2 className="section-title">Choose delivery method</h2>
                     <div className="selection-group">
                         <div className="selection-row">
-                            <input type="radio" name="delivery" />
+                            <input type="radio" name="delivery" defaultChecked />
                             <img src="https://image.alza.cz/Foto/Domains/Logistics/PersonalPickup/svg/icon-2.svg" className="row-icon" alt="" />
                             <span className="row-label">AlzaBox - self-service pickup boxes</span>
                             <span className="row-price">from 49 CZK</span>
                             <span className="row-delivery-time">tomorrow by 9:00</span>
                         </div>
-                        <div className="selection-row">
-                            <input type="radio" name="delivery" />
-                            <img src="https://cdn.alza.cz/Foto/ImgGalery/IkonyKosik2/svg/delivery/prodejna.svg" className="row-icon" alt="" />
-                            <span className="row-label">Showroom Prague 7 Holesovice</span>
-                            <span className="row-price">free or 45 CZK</span>
-                            <span className="row-delivery-time">tomorrow by 8:30</span>
+                    </div>
+
+
+                    <h2 className="section-title">Transport Conditions</h2>
+                    <div className="alza-conditions-box">
+                        <div className="alza-input-row">
+                            <label>Temperature (°C)</label>
+                            <input
+                                type="number"
+                                value={temp}
+                                onChange={(e) => setTemp(e.target.value)}
+                                className="alza-custom-input"
+                            />
+                        </div>
+                        <div className="alza-input-row">
+                            <label>Acceleration Overload</label>
+                            <input
+                                type="number"
+                                value={overload}
+                                onChange={(e) => setOverload(e.target.value)}
+                                className="alza-custom-input"
+                            />
                         </div>
                     </div>
 
@@ -81,17 +172,10 @@ const AlzaPayment = () => {
                             <span className="row-label">Apple Pay</span>
                             <span className="row-price" style={{ color: '#689700' }}>free</span>
                         </div>
-                        <div className="selection-row">
-                            <input type="radio" name="payment" />
-                            <img src="https://cdn.alza.cz/Foto/ImgGalery/IkonyKosik2/svg/platba/karta.svg" className="row-icon" alt="" />
-                            <span className="row-label">Card online</span>
-                            <span className="row-price" style={{ color: '#689700' }}>free</span>
-                        </div>
 
-                        {/* Новая строка с кошельком */}
                         <div className="selection-row wallet-row">
-                            <input type="radio" name="payment" />
-                            <div className="row-icon wallet-icon"></div>
+                            <input type="radio" name="payment" defaultChecked />
+                            <div className="row-icon wallet-icon">🌐</div>
                             <div className="row-label wallet-label-container">
                                 <span className="row-label">Crypto Wallet</span>
                                 <div className="wallet-button-wrapper">
@@ -104,23 +188,21 @@ const AlzaPayment = () => {
 
                     <div className="footer-actions">
                         <button className="btn-back" onClick={() => navigate('/alza')}>Back</button>
-                        <button className="btn-confirm">Continue ▶</button>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                            {status && <span className="alza-status-text">{status}</span>}
+                            <button className="btn-confirm" onClick={handleAuthAndSend}>
+                                Continue ▶
+                            </button>
+                        </div>
                     </div>
                 </div>
 
                 <aside className="right-column">
                     <div className="summary-card">
                         <h3 style={{ fontSize: '16px', margin: '0 0 15px 0', borderBottom: '1px solid #eee', paddingBottom: '10px' }}>Order Summary</h3>
-                        <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
-                            <img src="https://image.alza.cz/products/PLT554a/PLT554a.jpg?width=87&height=87" alt="" style={{ width: '40px', height: '40px' }} />
-                            <div style={{ fontSize: '12px' }}>
-                                1x PILOT FriXion Ball 07 blue
-                                <div style={{ fontWeight: 'bold', marginTop: '4px' }}>69 CZK</div>
-                            </div>
-                        </div>
                         <div style={{ borderTop: '1px solid #eee', paddingTop: '10px', display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '18px' }}>
                             <span>Total</span>
-                            <span>69 CZK</span>
+                            <span>0 CZK</span>
                         </div>
                     </div>
                 </aside>
