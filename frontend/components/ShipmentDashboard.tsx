@@ -54,16 +54,25 @@ const ENS = {
 
 export default function ShipmentDashboard({
   trackingCode,
+  apiBase,
+  readOnly = false,
 }: {
   trackingCode: string;
+  /** Override the API root. Defaults to `/api/shipments/<trackingCode>`.
+   *  External devices pass `/api/external/devices/<id>`. */
+  apiBase?: string;
+  /** Hide write actions (Dispute / Judge / Report) — used for external
+   *  read-only feeds where those endpoints don't exist. */
+  readOnly?: boolean;
 }) {
+  const base = apiBase ?? `/api/shipments/${trackingCode}`;
   const { data, error, isLoading, mutate } = useSWR<ShipmentDetail>(
-    `/api/shipments/${trackingCode}`,
+    base,
     fetcher,
     { refreshInterval: 3000 }
   );
   const { data: insight } = useSWR<Insight>(
-    `/api/shipments/${trackingCode}/insights`,
+    `${base}/insights`,
     fetcher,
     { refreshInterval: 30_000 }
   );
@@ -364,7 +373,7 @@ export default function ShipmentDashboard({
 
   return (
     <Shell>
-      <ActionRunner trackingCode={trackingCode} onMutate={mutate}>
+      <ActionRunner trackingCode={trackingCode} onMutate={mutate} disabled={readOnly}>
         {(run, banner) => (
           <>
             <TopBar
@@ -372,6 +381,7 @@ export default function ShipmentDashboard({
               compromised={!!compromised}
               onDispute={() => run("dispute")}
               onJudge={() => run("judge")}
+              readOnly={readOnly}
             />
             {banner}
           </>
@@ -400,7 +410,12 @@ export default function ShipmentDashboard({
           />
         </div>
         <div className="lg:h-[calc(460px+74px+12px)] min-h-0">
-          <AIInsights trackingCode={trackingCode} panic={!!compromised} />
+          <AIInsights
+            trackingCode={trackingCode}
+            apiBase={base}
+            panic={!!compromised}
+            hideReport={readOnly}
+          />
         </div>
       </section>
 
@@ -488,11 +503,13 @@ function TopBar({
   compromised,
   onDispute,
   onJudge,
+  readOnly = false,
 }: {
   data: ShipmentDetail;
   compromised: boolean;
   onDispute: () => void;
   onJudge: () => void;
+  readOnly?: boolean;
 }) {
   return (
     <div className="sticky top-3 z-30 mb-6 flex items-center gap-3 rounded-full border border-white/[0.06] bg-black/70 px-4 py-2 backdrop-blur-xl">
@@ -501,20 +518,28 @@ function TopBar({
         {data.trackingCode}
       </span>
       <div className="ml-auto flex items-center gap-2">
-        <ActionButton
-          onClick={onDispute}
-          tone={compromised ? "warn" : "ghost"}
-          icon={<ShieldX className="h-3.5 w-3.5" />}
-        >
-          Dispute
-        </ActionButton>
-        <ActionButton
-          onClick={onJudge}
-          tone="cyan"
-          icon={<Gavel className="h-3.5 w-3.5" />}
-        >
-          Supreme Judge
-        </ActionButton>
+        {readOnly ? (
+          <span className="rounded-full border border-white/10 bg-white/[0.02] px-3 py-1 font-mono text-[9px] uppercase tracking-[0.28em] text-white/45">
+            External · Read-only
+          </span>
+        ) : (
+          <>
+            <ActionButton
+              onClick={onDispute}
+              tone={compromised ? "warn" : "ghost"}
+              icon={<ShieldX className="h-3.5 w-3.5" />}
+            >
+              Dispute
+            </ActionButton>
+            <ActionButton
+              onClick={onJudge}
+              tone="cyan"
+              icon={<Gavel className="h-3.5 w-3.5" />}
+            >
+              Supreme Judge
+            </ActionButton>
+          </>
+        )}
       </div>
     </div>
   );
@@ -525,10 +550,12 @@ function TopBar({
 function ActionRunner({
   trackingCode,
   onMutate,
+  disabled = false,
   children,
 }: {
   trackingCode: string;
   onMutate: () => void;
+  disabled?: boolean;
   children: (
     run: (kind: "dispute" | "judge") => Promise<void>,
     banner: React.ReactNode
@@ -542,7 +569,7 @@ function ActionRunner({
   } | null>(null);
 
   async function run(kind: "dispute" | "judge") {
-    if (busy) return;
+    if (busy || disabled) return;
     setBusy(kind);
     setToast({
       tone: "cyan",

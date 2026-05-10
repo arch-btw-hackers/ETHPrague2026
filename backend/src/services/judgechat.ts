@@ -58,6 +58,19 @@ export async function chatWithJudge(
       .map((e) => `  · ${e.kind}: ${e.message}`)
       .join("\n") || "  · none"}`;
 
+  return runJudgeChat(facts, question, history);
+}
+
+/**
+ * Same OpenAI call path as `chatWithJudge`, but the caller supplies the
+ * forensic context as plain text (used by the external-device proxy where
+ * there's no Prisma row to read).
+ */
+export async function runJudgeChat(
+  facts: string,
+  question: string,
+  history: ChatTurn[] = []
+): Promise<ChatResult> {
   const key = process.env.OPENAI_API_KEY;
   if (!key) return { answer: localAnswer(question, facts), model: "heuristic" };
 

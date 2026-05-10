@@ -41,11 +41,16 @@ interface ChatTurn { role: "user" | "assistant"; content: string }
 interface Props {
   trackingCode: string;
   panic?: boolean;
+  /** Override API root. Defaults to /api/shipments/<trackingCode>. */
+  apiBase?: string;
+  /** Hide the PDF report button (external feeds don't expose it). */
+  hideReport?: boolean;
 }
 
-export function AIInsights({ trackingCode, panic = false }: Props) {
+export function AIInsights({ trackingCode, panic = false, apiBase, hideReport = false }: Props) {
+  const base = apiBase ?? `/api/shipments/${trackingCode}`;
   const { data, isLoading, mutate, isValidating } = useSWR<Insight>(
-    `/api/shipments/${trackingCode}/insights`,
+    `${base}/insights`,
     fetcher,
     { refreshInterval: 30_000 }
   );
@@ -71,7 +76,7 @@ export function AIInsights({ trackingCode, panic = false }: Props) {
     setAnalysing(kind);
     try {
       const r = await fetch(
-        `/api/shipments/${trackingCode}/insights?force=1`,
+        `${base}/insights?force=1`,
       );
       const j = (await r.json()) as Insight;
       const items =
@@ -100,7 +105,7 @@ export function AIInsights({ trackingCode, panic = false }: Props) {
     setHistory((h) => [...h, userTurn]);
     setInput("");
     try {
-      const r = await fetch(`/api/shipments/${trackingCode}/chat`, {
+      const r = await fetch(`${base}/chat`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ question, history }),
@@ -160,7 +165,7 @@ export function AIInsights({ trackingCode, panic = false }: Props) {
         </div>
         <button
           onClick={() =>
-            fetch(`/api/shipments/${trackingCode}/insights?force=1`).then(() =>
+            fetch(`${base}/insights?force=1`).then(() =>
               mutate()
             )
           }
@@ -319,17 +324,19 @@ export function AIInsights({ trackingCode, panic = false }: Props) {
           >
             <Send className="h-3.5 w-3.5" />
           </button>
-          <a
-            href={`/api/shipments/${trackingCode}/report.pdf`}
-            target="_blank"
-            rel="noreferrer"
-            className="group flex h-9 items-center gap-2 rounded-xl border border-white/[0.06] bg-gradient-to-br from-[#1a2046]/70 to-[#0a0d1a]/40 px-3 text-[10px] uppercase tracking-[0.24em] text-white/75 transition hover:border-[#A4B0FF]/40 hover:text-white"
-            aria-label="Generate AI PDF report"
-          >
-            <EthLogo size={11} tint="#A4B0FF" />
-            <FileDown className="h-3 w-3" />
-            <span className="hidden md:inline">Report</span>
-          </a>
+          {!hideReport && (
+            <a
+              href={`/api/shipments/${trackingCode}/report.pdf`}
+              target="_blank"
+              rel="noreferrer"
+              className="group flex h-9 items-center gap-2 rounded-xl border border-white/[0.06] bg-gradient-to-br from-[#1a2046]/70 to-[#0a0d1a]/40 px-3 text-[10px] uppercase tracking-[0.24em] text-white/75 transition hover:border-[#A4B0FF]/40 hover:text-white"
+              aria-label="Generate AI PDF report"
+            >
+              <EthLogo size={11} tint="#A4B0FF" />
+              <FileDown className="h-3 w-3" />
+              <span className="hidden md:inline">Report</span>
+            </a>
+          )}
         </form>
       </div>
     </div>
