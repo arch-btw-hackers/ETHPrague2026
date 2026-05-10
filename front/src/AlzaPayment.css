@@ -1,0 +1,326 @@
+:root {
+    --alza-dark-blue: #00275B;
+    --alza-light-blue: #0094E7;
+    --alza-green: #a1c900;
+    --alza-border-gray: #e0e0e0;
+    --alza-bg-gray: #f4f5f5;
+    --alza-plus-blue: #EFF3FD;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    font-family: "Roboto", Arial, sans-serif;
+    background-color: #f0f0f0;
+}
+
+.alza-checkout-page .header-alz-8v7ev0-11 {
+    background-color: #fff;
+    border-bottom: 1px solid var(--alza-border-gray);
+    padding: 10px 0;
+}
+
+.alza-checkout-page .header-content {
+    max-width: 1310px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    height: 60px;
+}
+
+.alza-checkout-page .search-container {
+    flex: 1;
+    margin: 0 30px;
+    display: flex;
+    border: 2px solid var(--alza-light-blue);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.alza-checkout-page .search-container input {
+    flex: 1;
+    padding: 8px 12px;
+    border: none;
+    outline: none;
+}
+
+.alza-checkout-page .search-container button {
+    background: var(--alza-light-blue);
+    color: white;
+    border: none;
+    padding: 0 20px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.alza-checkout-page .header-right {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.alza-checkout-page .main-container {
+    max-width: 1310px;
+    margin: 20px auto;
+    display: flex;
+    gap: 20px;
+    padding: 0 20px;
+    box-sizing: border-box;
+}
+
+.alza-checkout-page .left-column {
+    flex: 1;
+    background: white;
+    border-radius: 4px;
+    padding-bottom: 30px;
+}
+
+.alza-checkout-page .order-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 30px 0;
+    gap: 15px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.alza-checkout-page .order-step {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #6E6E6E;
+    font-size: 15px;
+}
+
+.alza-checkout-page .order-step-num {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: #eee;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.alza-checkout-page .order-step.active {
+    color: var(--alza-light-blue);
+    font-weight: bold;
+}
+
+.alza-checkout-page .order-step.active .order-step-num {
+    background: var(--alza-light-blue);
+    color: white;
+}
+
+.alza-checkout-page .order-step.completed .order-step-num {
+    background: #eee;
+    color: #6E6E6E;
+}
+
+.alza-checkout-page .nav-line {
+    width: 50px;
+    height: 2px;
+    background: #c6c6c6;
+}
+
+.alza-checkout-page .alza-plus-banner {
+    background-color: var(--alza-plus-blue);
+    margin: 20px;
+    border-radius: 8px;
+    padding: 25px;
+    display: flex;
+    position: relative;
+    min-height: 150px;
+    overflow: hidden;
+}
+
+.alza-checkout-page .alza-plus-info {
+    width: 65%;
+    z-index: 2;
+}
+
+.alza-checkout-page .alza-plus-mascot {
+    position: absolute;
+    right: -20px;
+    bottom: -10px;
+    height: 160px;
+    z-index: 1;
+}
+
+.alza-checkout-page .btn-ap-white {
+    background: white;
+    border: 1px solid #ddd;
+    padding: 8px 15px;
+    border-radius: 4px;
+    margin-right: 10px;
+    cursor: pointer;
+}
+
+.alza-checkout-page .btn-ap-blue {
+    background: white;
+    border: 1px solid var(--alza-light-blue);
+    color: var(--alza-light-blue);
+    padding: 8px 15px;
+    border-radius: 4px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.alza-checkout-page .section-title {
+    font-size: 22px;
+    padding: 20px 25px;
+    margin: 0;
+}
+
+.alza-checkout-page .selection-group {
+    margin: 0 25px 30px;
+    border: 1px solid var(--alza-border-gray);
+    border-radius: 4px;
+}
+
+.alza-checkout-page .selection-row {
+    display: flex;
+    align-items: center;
+    padding: 15px;
+    border-bottom: 1px solid var(--alza-border-gray);
+    cursor: pointer;
+}
+
+.alza-checkout-page .selection-row:last-child {
+    border-bottom: none;
+}
+
+.alza-checkout-page .row-icon {
+    width: 32px;
+    margin: 0 15px;
+}
+
+.alza-checkout-page .row-label {
+    flex: 1;
+    font-size: 14px;
+}
+
+.alza-checkout-page .row-price {
+    font-weight: bold;
+    margin-left: 15px;
+}
+
+.alza-checkout-page .row-delivery-time {
+    color: #689700;
+    font-size: 13px;
+    margin-left: 20px;
+    width: 120px;
+    text-align: right;
+}
+
+.alza-checkout-page .footer-actions {
+    display: flex;
+    justify-content: space-between;
+    padding: 20px 25px;
+    border-top: 1px solid #f0f0f0;
+}
+
+.alza-checkout-page .btn-back {
+    padding: 10px 20px;
+    border: 1px solid #ddd;
+    background: white;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.alza-checkout-page .btn-confirm {
+    padding: 12px 40px;
+    background: var(--alza-green);
+    border: none;
+    border-radius: 6px;
+    font-weight: bold;
+    font-size: 18px;
+    cursor: pointer;
+}
+
+.alza-checkout-page .right-column {
+    width: 320px;
+}
+
+.alza-checkout-page .summary-card {
+    background: white;
+    padding: 20px;
+    border-radius: 4px;
+    position: sticky;
+    top: 20px;
+}
+
+.alza-checkout-page .wallet-row {
+    min-height: 60px;
+}
+
+.alza-checkout-page .wallet-icon {
+    font-size: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.alza-checkout-page .wallet-label-container {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.alza-checkout-page .wallet-button-wrapper {
+    transform: scale(0.9);
+    transform-origin: left center;
+}
+
+
+.alza-checkout-page .wallet-button-wrapper button {
+    box-shadow: none !important;
+}
+
+.alza-checkout-page .alza-conditions-box {
+    margin: 0 25px 30px;
+    padding: 20px;
+    border: 1px solid var(--alza-border-gray);
+    border-radius: 4px;
+    display: flex;
+    gap: 30px;
+}
+
+.alza-checkout-page .alza-input-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.alza-checkout-page .alza-input-row label {
+    font-size: 13px;
+    font-weight: bold;
+    color: #555;
+}
+
+.alza-checkout-page .alza-custom-input {
+    padding: 8px 12px;
+    border: 1px solid var(--alza-border-gray);
+    border-radius: 4px;
+    font-size: 16px;
+    width: 100px;
+    outline: none;
+}
+
+.alza-checkout-page .alza-custom-input:focus {
+    border-color: var(--alza-light-blue);
+}
+
+.alza-checkout-page .alza-status-text {
+    font-size: 12px;
+    color: #c45500;
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+
+
+.alza-checkout-page .wallet-icon {
+    font-size: 20px;
+    margin: 0 15px;
+}
