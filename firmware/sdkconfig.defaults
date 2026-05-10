@@ -1,0 +1,24 @@
+# Target: ESP32-S3
+CONFIG_IDF_TARGET="esp32s3"
+
+# Flash: 8MB (chip has 8MB)
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+
+# Custom partition table
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# Disable WiFi power save
+CONFIG_PM_ENABLE=n
+
+# Disable Bluetooth + WiFi coexistence (the crash is in esp_coex timer code)
+CONFIG_ESP_COEX_SW_COEXIST_ENABLE=n
+
+# Pin WiFi task to core 0
+CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_0=y
+
+# Increase timer task stack
+CONFIG_FREERTOS_TIMER_TASK_STACK_DEPTH=3072
+
+# Increase main task stack (TLS + HTTP + cJSON in app_main needs space)
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=12288
