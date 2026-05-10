@@ -50,15 +50,12 @@ _SUBMIT_TRACKER_STATE_ABI = [
 _CREATE_SHIPMENT_ABI = [
     {
         "inputs": [
-            {"internalType": "string", "name": "packageRef", "type": "string"},
-            {"internalType": "string", "name": "telemetryProof", "type": "string"},
-            {"internalType": "uint8",  "name": "trackerState", "type": "uint8"},
-            {"internalType": "uint8",  "name": "status", "type": "uint8"},
-            {"internalType": "bool",   "name": "receiverConfirmed", "type": "bool"},
-            {"internalType": "uint256","name": "createdAt", "type": "uint256"},
+            {"internalType": "address", "name": "receiverWallet",       "type": "address"},
+            {"internalType": "address", "name": "trackerServiceWallet", "type": "address"},
+            {"internalType": "string",  "name": "packageRef",           "type": "string"},
         ],
         "name": "createShipment",
-        "outputs": [],
+        "outputs": [{"internalType": "uint256", "name": "shipmentId", "type": "uint256"}],
         "stateMutability": "nonpayable",
         "type": "function",
     }
@@ -264,12 +261,9 @@ async def create_shipment_on_chain(data) -> str:
     gas_price = await w3.eth.gas_price
 
     tx = await contract.functions.createShipment(
+        data.receiver_wallet,
+        data.tracker_service_wallet,
         data.package_ref,
-        data.telemetry_proof,
-        data.tracker_state,
-        data.status,
-        data.receiver_confirmed,
-        data.created_at,
     ).build_transaction(
         {
             "from": sender,

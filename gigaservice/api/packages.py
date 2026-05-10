@@ -1,6 +1,4 @@
-import hashlib
 import os
-import time
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -38,28 +36,23 @@ class PackageResponse(BaseModel):
 class PackageContractInit(BaseModel):
     """Internal model passed to create_shipment_on_chain."""
     package_ref: str
-    telemetry_proof: str
-    tracker_state: int
-    status: int
-    receiver_confirmed: bool
-    created_at: int
+    receiver_wallet: str
+    tracker_service_wallet: str
 
 
 class ShipmentInitRequest(BaseModel):
     """What the caller sends to POST /initialize."""
     temp_c: float
     acceleration: float
+    receiver_wallet: str | None = None       # Ethereum address of the receiver
+    tracker_service_wallet: str | None = None  # Ethereum address of tracker service
 
 
 class ShipmentInitResponse(BaseModel):
     """What the server returns after registering the shipment on-chain."""
     package_ref: str
-    telemetry_proof: str
-    tracker_state: int
-    status: int
-    receiver_confirmed: bool
-    created_at: int
     tx_hash: str
+    shipment_id: int | None = None
 
 
 @router.post("/", response_model=PackageResponse)
@@ -81,23 +74,18 @@ async def create_package(
 
 @router.post("/initialize", response_model=ShipmentInitResponse)
 async def initialize_package_on_chain(req: ShipmentInitRequest):
-    """Register a new shipment on-chain derived from sensor readings. No auth required."""
-    created_at = int(time.time())
+    """Register a new shipment on-chain. No auth required."""
     package_ref = str(uuid.uuid4())
-    telemetry_proof = hashlib.sha256(
-        f"{req.temp_c}:{req.acceleration}:{created_at}".encode()
-    ).hexdigest()
-    tracker_state = 0
-    status = 0
-    receiver_confirmed = False
+
+    # Default wallets: use the server's own address for both if not provided
+    server_address = os.environ.get("SERVER_ADDRESS", "0x0000000000000000000000000000000000000000")
+    receiver = req.receiver_wallet or server_address
+    tracker_svc = req.tracker_service_wallet or server_address
 
     data = PackageContractInit(
         package_ref=package_ref,
-        telemetry_proof=telemetry_proof,
-        tracker_state=tracker_state,
-        status=status,
-        receiver_confirmed=receiver_confirmed,
-        created_at=created_at,
+        receiver_wallet=receiver,
+        tracker_service_wallet=tracker_svc,
     )
     try:
         tx_hash = await create_shipment_on_chain(data)
@@ -105,11 +93,6 @@ async def initialize_package_on_chain(req: ShipmentInitRequest):
         raise HTTPException(status_code=502, detail=f"Blockchain error: {exc}")
     return ShipmentInitResponse(
         package_ref=package_ref,
-        telemetry_proof=telemetry_proof,
-        tracker_state=tracker_state,
-        status=status,
-        receiver_confirmed=receiver_confirmed,
-        created_at=created_at,
         tx_hash=tx_hash,
     )
 
