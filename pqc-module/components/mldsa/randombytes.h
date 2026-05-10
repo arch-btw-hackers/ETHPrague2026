@@ -6,8 +6,9 @@
 extern "C" {
 #endif
 
-/* Used by pq-crystals/dilithium for keypair generation only. */
-void randombytes(uint8_t *buf, size_t n);
+/* PQCP libraries (mlkem-native, mldsa-native) expect int randombytes().
+ * Returns 0 on success, non-zero on failure. */
+int randombytes(uint8_t *buf, size_t n);
 
 #ifdef __cplusplus
 }

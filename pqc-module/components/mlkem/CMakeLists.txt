@@ -37,6 +37,7 @@ target_compile_options(${COMPONENT_LIB} PRIVATE
     -std=c99
     -O2
     -Wno-unused-function
-    # Select ML-KEM-512 — exposes mlkem512_keypair, mlkem512_enc, mlkem512_enc_derand
+    # Select ML-KEM-512 and set namespace — exposes mlkem512_keypair, mlkem512_enc_derand, etc.
     -DMLK_CONFIG_PARAMETER_SET=512
+    -DMLK_CONFIG_NAMESPACE_PREFIX=mlkem512
 )

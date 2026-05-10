@@ -318,6 +318,44 @@ make submodules
 make test-host
 ```
 
+Expected output:
+
+```
+ML-KEM-512 — round-trip
+  [PASS] keypair ok
+  [PASS] pk size == 800 B
+  [PASS] ct size == 768 B
+  [PASS] ss size == 32 B
+  [PASS] enc ok
+  [PASS] dec ok
+  [PASS] enc/dec ss match
+
+ML-KEM-512 — deterministic encapsulation (_derand)
+  [PASS] enc_derand ok
+  [PASS] dec ok
+  [PASS] ss match
+
+ML-KEM-512 — wrong ciphertext (CCA)
+  [PASS] flipped ct → different ss
+
+ML-DSA-44 — sign / verify
+  [PASS] pk size == 1312 B
+  [PASS] sk size == 2560 B
+  [PASS] keypair ok
+  [PASS] sign ok
+  [PASS] sig <= 2420 B
+  [PASS] verify ok
+
+ML-DSA-44 — reject tampered message
+  [PASS] tampered msg fails verify
+
+ML-DSA-44 — reject wrong public key
+  [PASS] sig from key1 rejected by key2
+
+==========================================
+Results: 19/19 checks passed
+```
+
 ---
 
 ## Backend keygen

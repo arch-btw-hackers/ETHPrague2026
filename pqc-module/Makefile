@@ -60,9 +60,10 @@ test:
 # test-host: native C tests — requires submodules (make submodules first)
 MLKEM_SRCS := $(wildcard $(MLKEM_DIR)/mlkem/src/*.c) \
               $(wildcard $(MLKEM_DIR)/mlkem/src/fips202/*.c)
-# fips202 excluded from mldsa to avoid duplicate symbols (mlkem provides it)
-MLDSA_SRCS := $(filter-out $(MLDSA_DIR)/mldsa/src/fips202/%, \
-              $(wildcard $(MLDSA_DIR)/mldsa/src/*.c))
+# mldsa-native namespaces its own fips202 (mldsa44_shake128_*, etc.) so it
+# does NOT conflict with mlkem's fips202 — compile both independently.
+MLDSA_SRCS := $(wildcard $(MLDSA_DIR)/mldsa/src/*.c) \
+              $(wildcard $(MLDSA_DIR)/mldsa/src/fips202/*.c)
 
 TEST_BIN := tests/test_host
 
@@ -72,7 +73,9 @@ test-host: $(TEST_BIN)
 $(TEST_BIN): tests/test_host.c tests/randombytes_host.c $(MLKEM_SRCS) $(MLDSA_SRCS)
 	$(CC) -std=c99 -O2 -Wno-unused-function -Wno-unused-variable \
 	    -DMLK_CONFIG_PARAMETER_SET=512 \
+	    -DMLK_CONFIG_NAMESPACE_PREFIX=mlkem512 \
 	    -DMLD_CONFIG_PARAMETER_SET=44 \
+	    -DMLD_CONFIG_NAMESPACE_PREFIX=mldsa44 \
 	    -I$(MLKEM_DIR)/mlkem \
 	    -I$(MLKEM_DIR)/mlkem/src \
 	    -I$(MLDSA_DIR)/mldsa \
