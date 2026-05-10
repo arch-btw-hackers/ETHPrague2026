@@ -1,0 +1,246 @@
+:root {
+    --alza-dark-blue: #00275B;
+    --alza-light-blue: #0094E7;
+    --alza-green: #a1c900;
+    --alza-border-gray: #e0e0e0;
+    --alza-bg-gray: #f4f5f5;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    font-family: "Arial", sans-serif;
+    background-color: #f0f0f0;
+}
+
+.alza-cz .header-alz-9u9iou-10 {
+    background-color: #fff;
+    border-bottom: 1px solid var(--alza-border-gray);
+    width: 100%;
+}
+
+.alza-cz .header-alz-8v7ev0-11 {
+    max-width: 1310px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 80px;
+    padding: 0 20px;
+    box-sizing: border-box;
+}
+
+.alza-cz .header-alz-71zeas-15 {
+    flex-shrink: 0;
+}
+
+.alza-cz .header-alz-fzim95-17 {
+    flex-grow: 1;
+    max-width: 600px;
+    margin: 0 30px;
+    position: relative;
+}
+
+.alza-cz .header-alz-9t7adh-45 {
+    display: flex;
+    width: 100%;
+    border: 2px solid var(--alza-light-blue);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.alza-cz .header-alz-xigua8-53 {
+    flex-grow: 1;
+    padding: 10px 15px;
+    border: none;
+    font-size: 14px;
+    outline: none;
+}
+
+.alza-cz .header-alz-14zbaw-58 {
+    background-color: var(--alza-light-blue);
+    color: white;
+    border: none;
+    padding: 0 20px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.alza-cz .header-right-side {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.alza-cz .header-alz-xafhyl-61 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+}
+
+.alza-cz .user-avatar-container {
+    width: 32px;
+    height: 32px;
+    background: #e0e0e0;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.alza-cz .user-name-text {
+    font-weight: bold;
+    color: var(--alza-dark-blue);
+    font-size: 14px;
+}
+
+.alza-cz .sign-in-text {
+    color: var(--alza-dark-blue);
+    font-size: 12px;
+}
+
+.alza-cz .icon-separator {
+    width: 1px;
+    height: 24px;
+    background-color: var(--alza-border-gray);
+    margin: 0 15px;
+}
+
+.alza-cz .alza-svg-icon {
+    fill: var(--alza-dark-blue);
+    width: 24px;
+    height: 24px;
+}
+
+.alza-cz .cart-icon-gray {
+    fill: #a4a4a4;
+    width: 26px;
+    height: 26px;
+}
+
+.alza-cz .main-card {
+    max-width: 1310px;
+    margin: 20px auto;
+    background: white;
+    border-radius: 4px;
+    min-height: 600px;
+    padding: 40px;
+    box-sizing: border-box;
+}
+
+.alza-cz .order-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 40px;
+    gap: 10px;
+}
+
+.alza-cz .order-step {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--alza-gray-text);
+    font-weight: 500;
+}
+
+.alza-cz .order-step-num {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #eee;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+}
+
+.alza-cz .order-step.active {
+    color: var(--alza-light-blue);
+}
+
+.alza-cz .order-step.active .order-step-num {
+    background: var(--alza-light-blue);
+    color: white;
+}
+
+.alza-cz .nav-line {
+    width: 60px;
+    height: 2px;
+    background: #c6c6c6;
+}
+
+.alza-cz .empty-cart-box {
+    display: flex;
+    align-items: center;
+    background: var(--alza-bg-gray);
+    padding: 30px;
+    border-radius: 4px;
+    margin-bottom: 20px;
+}
+
+.alza-cz .charity-section {
+    border: 1px solid var(--alza-border-gray);
+    border-radius: 4px;
+    padding: 20px;
+    margin: 30px 0;
+}
+
+.alza-cz .charity-content {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.alza-cz .oheart-select {
+    flex-grow: 1;
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+.alza-cz .btn-add {
+    padding: 8px 20px;
+    background: #f4f5f5;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.alza-cz .footer-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    border-top: 1px dotted #ccc;
+    padding-top: 30px;
+}
+
+.alza-cz .btn-back {
+    padding: 12px 24px;
+    background: #fff;
+    border: 1px solid var(--alza-border-gray);
+    border-radius: 4px;
+    color: var(--alza-dark-blue);
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.alza-cz .price-container {
+    text-align: right;
+}
+
+.alza-cz .btn-continue {
+    background-color: var(--alza-green);
+    color: #000;
+    border: none;
+    border-radius: 8px;
+    padding: 12px 50px;
+    font-size: 18px;
+    font-weight: bold;
+    cursor: pointer;
+    margin-top: 15px;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+}
