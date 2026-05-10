@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="dark" />
+  <title>Delivery Condition Violation — GigaService</title>
+  <style>
+    /* Reset */
+    * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+
+    body {{
+      background-color: #0d0d0d;
+      color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-size: 15px;
+      line-height: 1.6;
+      padding: 32px 16px;
+    }}
+
+    .wrapper {{
+      max-width: 580px;
+      margin: 0 auto;
+    }}
+
+    /* Header */
+    .header {{
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      border: 1px solid #2d3748;
+      border-bottom: 3px solid #e53e3e;
+      border-radius: 12px 12px 0 0;
+      padding: 28px 32px;
+      text-align: center;
+    }}
+
+    .header .badge {{
+      display: inline-block;
+      background: rgba(229, 62, 62, 0.15);
+      border: 1px solid rgba(229, 62, 62, 0.4);
+      color: #fc8181;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      padding: 4px 12px;
+      border-radius: 20px;
+      margin-bottom: 14px;
+    }}
+
+    .header h1 {{
+      font-size: 22px;
+      font-weight: 700;
+      color: #f7fafc;
+      margin-bottom: 4px;
+    }}
+
+    .header p {{
+      color: #718096;
+      font-size: 13px;
+    }}
+
+    /* Body */
+    .body {{
+      background: #141414;
+      border: 1px solid #2d3748;
+      border-top: none;
+      padding: 32px;
+    }}
+
+    .section-label {{
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      color: #718096;
+      margin-bottom: 8px;
+    }}
+
+    .info-block {{
+      background: #1a1a1a;
+      border: 1px solid #2d3748;
+      border-left: 3px solid #e53e3e;
+      border-radius: 0 8px 8px 0;
+      padding: 16px 18px;
+      margin-bottom: 20px;
+    }}
+
+    .info-block .value {{
+      font-size: 16px;
+      font-weight: 600;
+      color: #f7fafc;
+      font-family: "SF Mono", "Fira Code", Consolas, monospace;
+      word-break: break-all;
+    }}
+
+    .info-block .value.reason {{
+      color: #fc8181;
+    }}
+
+    .info-block .value.timestamp {{
+      font-size: 13px;
+      color: #a0aec0;
+    }}
+
+    /* CTA Button */
+    .cta-wrapper {{
+      text-align: center;
+      margin: 28px 0 8px;
+    }}
+
+    .cta-button {{
+      display: inline-block;
+      background: linear-gradient(135deg, #6b46c1 0%, #805ad5 100%);
+      color: #ffffff !important;
+      text-decoration: none;
+      font-size: 15px;
+      font-weight: 700;
+      padding: 14px 32px;
+      border-radius: 8px;
+      letter-spacing: 0.3px;
+      border: none;
+    }}
+
+    /* Footer */
+    .footer {{
+      background: #0d0d0d;
+      border: 1px solid #2d3748;
+      border-top: none;
+      border-radius: 0 0 12px 12px;
+      padding: 20px 32px;
+      text-align: center;
+    }}
+
+    .footer p {{
+      font-size: 12px;
+      color: #4a5568;
+      margin-bottom: 4px;
+    }}
+
+    .footer a {{
+      color: #805ad5;
+      text-decoration: none;
+      word-break: break-all;
+    }}
+
+    /* Divider */
+    .divider {{
+      border: none;
+      border-top: 1px solid #2d3748;
+      margin: 24px 0;
+    }}
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+
+    <!-- Header -->
+    <div class="header">
+      <div class="badge">⚠ Delivery Alert</div>
+      <h1>Condition Violation Detected</h1>
+      <p>GigaService automated monitoring</p>
+    </div>
+
+    <!-- Body -->
+    <div class="body">
+      <p>A delivery condition violation has been detected for your shipment. The smart contract has been notified and a refund may be triggered automatically.</p>
+
+      <hr class="divider" />
+
+      <div class="section-label">Device ID</div>
+      <div class="info-block">
+        <div class="value">{device_id}</div>
+      </div>
+
+      <div class="section-label">Violation Reason</div>
+      <div class="info-block">
+        <div class="value reason">{reason}</div>
+      </div>
+
+      <div class="section-label">Timestamp (UTC)</div>
+      <div class="info-block">
+        <div class="value timestamp">{timestamp}</div>
+      </div>
+
+      <hr class="divider" />
+
+      <div class="cta-wrapper">
+        <a class="cta-button" href="{explorer_link}" target="_blank" rel="noopener noreferrer">
+          View Transaction on Explorer
+        </a>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <p>This is an automated alert from GigaService.</p>
+      <p>Explorer link: <a href="{explorer_link}">{explorer_link}</a></p>
+    </div>
+
+  </div>
+</body>
+</html>

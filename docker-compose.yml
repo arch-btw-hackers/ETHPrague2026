@@ -1,0 +1,38 @@
+version: "3.8"
+
+services:
+  bee:
+    image: ethersphere/bee:latest
+    container_name: bee
+    ports:
+      - "1633:1633"
+      - "1635:1635"
+    environment:
+      - BEE_PASSWORD=67  # <--- Добавили вот это
+    command: >
+      start
+      --api-addr=:1633
+      --p2p-addr=:1635
+      --swap-enable=false
+      --welcome-message="gigaservice"
+      --verbosity=3
+    restart: unless-stopped
+
+  gigaservice:
+    build:
+      context: ./gigaservice
+    container_name: gigaservice
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./gigaservice/.env
+    environment:
+      - BEE_API_URL=http://bee:1633
+    volumes:
+      - gigaservice_data:/data
+    depends_on:
+      - bee
+    restart: unless-stopped
+
+volumes:
+  gigaservice_data:
