@@ -74,7 +74,13 @@ async def create_package(
 async def initialize_package_on_chain(req: ShipmentInitRequest):
     """Register a new shipment on-chain. No auth required."""
     package_ref = str(uuid.uuid4())
-    server_address = os.environ.get("SERVER_ADDRESS", "0x0000000000000000000000000000000000000000")
+
+    # Derive server address from private key — never use zero address (contract rejects it)
+    private_key = os.environ.get("WEB3_PRIVATE_KEY") or os.environ.get("SERVER_PRIVATE_KEY", "")
+    if not private_key:
+        raise HTTPException(status_code=503, detail="Blockchain not configured: missing WEB3_PRIVATE_KEY")
+    from web3 import AsyncWeb3
+    server_address = AsyncWeb3().eth.account.from_key(private_key).address
 
     data = PackageContractInit(
         package_ref=package_ref,
