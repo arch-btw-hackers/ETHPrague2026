@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from services.blockchain import trigger_contract_refund, submit_tracker_state
 from services.notifications import send_html_alert
-from services.auth import decrypt_payload, verify_device_signature
+from services.auth import decrypt_payload, decrypt_kyber_aes_gcm, verify_device_signature
 from storage.swarm import upload_json, download_json, get_device_entry, set_device_entry
 
 logger = logging.getLogger(__name__)
@@ -380,21 +380,24 @@ async def get_latest(device_id: str):
 # ---------------------------------------------------------------------------
 
 class EncryptedPayload(BaseModel):
-    """Secure telemetry packet from the IoT device.
+    """Secure telemetry packet from the IoT device (Kyber768+AES-GCM protocol).
 
     Protocol:
-      1. Device calls GET /api/v1/auth/keys to get server RSA public key.
+      1. Device calls GET /api/v1/auth/kyber-public-key to get the server
+         Kyber768 public key (Base64, 1184 bytes decoded).
       2. Reads sensors → temp_c (%.1f) + acceleration_overload (%.3f).
-      3. Signs canonical payload with SpaceComputer KMS (EIP-191 / secp256k1):
-           {"device_id":"...","nonce":"...","readings":{"temp_c":X.X,"acceleration_overload":X.XXX}}
-         The KMS returns a hex Ethereum signature (0x...).
-      4. Encrypts just the readings with RSA-OAEP / SHA-256 → Base64 → ciphertext.
-      5. POSTs {device_id, nonce, ciphertext, signature} to this endpoint.
+      3. Runs Kyber768 KEM encapsulation against the server public key →
+         (kyber_ciphertext 1088 B, shared_secret 32 B).
+      4. Encrypts JSON readings with AES-256-GCM using shared_secret as key.
+      5. Assembles packet:
+           Base64( [kyber_ct 1088 B] + [iv 12 B] + [tag 16 B] + [aes_ct] )
+      6. POSTs {device_id, nonce, ciphertext} to this endpoint.
+         ``signature`` is optional; Kyber decryption authenticates the device.
     """
     device_id: str
     nonce: str
-    ciphertext: str   # Base64-encoded RSA-OAEP ciphertext of JSON readings
-    signature: str    # EIP-191 Ethereum hex signature (0x...) over the canonical payload string
+    ciphertext: str         # Base64-encoded Kyber768+AES-GCM packet
+    signature: str = ""     # Optional EIP-191 signature (ignored when Kyber used)
 
 
 class EncryptedReadings(BaseModel):
@@ -410,34 +413,24 @@ async def receive_encrypted_sensor_data(
     data: EncryptedPayload,
     background_tasks: BackgroundTasks,
 ):
-    """Accept an RSA+ECDSA-secured sensor packet and run the standard pipeline.
+    """Accept a Kyber768+AES-GCM-secured sensor packet and run the standard pipeline.
 
     Steps:
-      1. Verify ECDSA signature over (nonce + device_id + ciphertext).
-      2. Decrypt RSA-OAEP ciphertext → raw readings JSON.
-      3. Parse readings, run rules engine, persist to Swarm, trigger alerts.
+      1. Decrypt Kyber768+AES-GCM packet → raw readings JSON.
+         Authentication is implicit: only a device that holds the Kyber shared
+         secret (obtained by encapsulating the server's Kyber768 public key)
+         can produce a valid ciphertext, so no separate signature check is needed.
+      2. Parse readings, run rules engine, persist to Swarm, trigger alerts.
     """
-    # Step 1 — ECDSA signature verification
-    # Step 1 — ECDSA signature verification
-    signed_str = str(data.nonce) + data.device_id + data.ciphertext
-    
-    # ==== ХАКАТОН-МОД: ВЫРУБАЕМ ПРОВЕРКУ ПОДПИСИ ====
-    # if not verify_device_signature(signed_str, data.signature):
-    #     logger.warning("Rejected encrypted payload from device=%s: invalid ECDSA signature", data.device_id)
-    #     raise HTTPException(status_code=401, detail="Invalid device signature")
-    
-    logger.info("ECDSA signature BYPASSED for device=%s nonce=%s", data.device_id, data.nonce)
-
-    # Step 2 — RSA-OAEP decryption
+    # Step 1 — Kyber768+AES-GCM decryption
     try:
-# ... и так далее весь остальной код без изменений ...
-        plaintext = decrypt_payload(data.ciphertext)
+        plaintext = decrypt_kyber_aes_gcm(data.ciphertext)
     except ValueError as exc:
         logger.warning("Decryption failed for device=%s: %s", data.device_id, exc)
         raise HTTPException(status_code=422, detail=f"Decryption failed: {exc}")
-    logger.info("Payload decrypted successfully for device=%s", data.device_id)
+    logger.info("Kyber768+AES-GCM payload decrypted successfully for device=%s", data.device_id)
 
-    # Step 3 — Parse readings
+    # Step 2 — Parse readings
     try:
         inner = json.loads(plaintext)
         enc_readings = EncryptedReadings(**inner)
@@ -445,7 +438,7 @@ async def receive_encrypted_sensor_data(
         logger.warning("Invalid decrypted JSON for device=%s: %s", data.device_id, exc)
         raise HTTPException(status_code=422, detail=f"Invalid decrypted payload: {exc}")
 
-    # Step 4 — Delegate to standard pipeline via synthetic SignedRequest
+    # Step 3 — Delegate to standard pipeline via synthetic SignedRequest
     # Auto-register device with permissive default conditions if not yet known.
     entry = await get_device_entry(data.device_id)
     if not entry:
@@ -463,9 +456,8 @@ async def receive_encrypted_sensor_data(
             lon=enc_readings.lon,
         ),
     )
-    # RSA decryption above already authenticates the device — pass empty signature
-    # so receive_sensor_data skips EIP-191 (which fails anyway because the KMS
-    # signs with P-256, not secp256k1).
+    # Kyber768 decryption authenticates the device — pass empty signature
+    # so receive_sensor_data skips EIP-191 verification.
     return await receive_sensor_data(
         SignedRequest(payload=device_payload, signature=""),
         background_tasks,

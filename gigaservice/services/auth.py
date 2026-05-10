@@ -212,6 +212,142 @@ decrypt_payload = decrypt_with_server_key
 
 
 # ---------------------------------------------------------------------------
+# Kyber768 server key pair — post-quantum KEM for device payload encryption
+# ---------------------------------------------------------------------------
+
+_KYBER_KEY_FILE = pathlib.Path("/data/gigaservice_kyber_key.bin")
+_KYBER_KEY_FILE_FALLBACK = pathlib.Path("/tmp/gigaservice_kyber_key.bin")
+
+_kyber_public_key_bytes: bytes | None = None
+_kyber_secret_key_bytes: bytes | None = None
+
+
+def _load_or_generate_kyber_keys() -> None:
+    """Load or generate a Kyber768 keypair and persist it to the data volume."""
+    global _kyber_public_key_bytes, _kyber_secret_key_bytes
+
+    try:
+        import oqs  # type: ignore[import]
+    except ImportError:
+        logger.warning("liboqs/oqs not installed — Kyber768 unavailable")
+        return
+
+    # Check env vars first (base64-encoded)
+    sk_b64 = os.environ.get("KYBER_SECRET_KEY_B64", "").strip()
+    pk_b64 = os.environ.get("KYBER_PUBLIC_KEY_B64", "").strip()
+    if sk_b64 and pk_b64:
+        import base64
+        _kyber_secret_key_bytes = base64.b64decode(sk_b64)
+        _kyber_public_key_bytes = base64.b64decode(pk_b64)
+        logger.info("Kyber768 keys loaded from environment variables")
+        return
+
+    # Try to load from persisted binary file: [32-byte length prefix][SK][PK]
+    for candidate in (_KYBER_KEY_FILE, _KYBER_KEY_FILE_FALLBACK):
+        if candidate.exists():
+            try:
+                raw = candidate.read_bytes()
+                sk_len = int.from_bytes(raw[:4], "big")
+                sk = raw[4: 4 + sk_len]
+                pk = raw[4 + sk_len:]
+                _kyber_secret_key_bytes = sk
+                _kyber_public_key_bytes = pk
+                logger.info("Kyber768 keys loaded from %s", candidate)
+                return
+            except Exception:
+                logger.warning("Failed to load Kyber key from %s", candidate)
+
+    # Generate fresh keypair
+    with oqs.KeyEncapsulation("Kyber768") as kem:
+        _kyber_public_key_bytes = kem.generate_keypair()
+        _kyber_secret_key_bytes = kem.export_secret_key()
+
+    logger.info("Kyber768 keypair generated")
+
+    # Persist: [4-byte SK length][SK][PK]
+    sk_len_bytes = len(_kyber_secret_key_bytes).to_bytes(4, "big")
+    payload_bin = sk_len_bytes + _kyber_secret_key_bytes + _kyber_public_key_bytes
+    for target in (_KYBER_KEY_FILE, _KYBER_KEY_FILE_FALLBACK):
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(payload_bin)
+            logger.info("Kyber768 keypair persisted to %s", target)
+            break
+        except Exception as exc:
+            logger.warning("Could not persist Kyber key to %s: %s", target, exc)
+
+
+def get_kyber_public_key_bytes() -> bytes:
+    """Return the Kyber768 public key bytes (1184 bytes for Kyber768)."""
+    if _kyber_public_key_bytes is None:
+        _load_or_generate_kyber_keys()
+    if _kyber_public_key_bytes is None:
+        raise RuntimeError("Kyber768 not available — install liboqs")
+    return _kyber_public_key_bytes
+
+
+def decrypt_kyber_aes_gcm(packet_b64: str) -> bytes:
+    """Decrypt a Kyber768+AES-GCM packet from the ESP32.
+
+    Packet layout (Base64-encoded):
+      [Kyber ciphertext (1088 bytes)] [AES-GCM IV (12 bytes)]
+      [AES-GCM tag (16 bytes)] [AES ciphertext (variable)]
+
+    The Kyber ciphertext is decapsulated to recover the shared secret,
+    which is used directly as the 32-byte AES-256-GCM key.
+    """
+    import base64
+    try:
+        import oqs  # type: ignore[import]
+    except ImportError:
+        raise ValueError("liboqs not installed — Kyber768 decryption unavailable")
+
+    if _kyber_secret_key_bytes is None:
+        _load_or_generate_kyber_keys()
+    if _kyber_secret_key_bytes is None:
+        raise ValueError("Kyber768 secret key not loaded")
+
+    try:
+        packet = base64.b64decode(packet_b64)
+    except Exception as exc:
+        raise ValueError("packet is not valid Base64") from exc
+
+    KYBER_CT_LEN = 1088
+    AES_IV_LEN = 12
+    AES_TAG_LEN = 16
+    MIN_LEN = KYBER_CT_LEN + AES_IV_LEN + AES_TAG_LEN + 1
+
+    if len(packet) < MIN_LEN:
+        raise ValueError(
+            f"packet too short: got {len(packet)} bytes, need at least {MIN_LEN}"
+        )
+
+    kyber_ct = packet[:KYBER_CT_LEN]
+    aes_iv = packet[KYBER_CT_LEN: KYBER_CT_LEN + AES_IV_LEN]
+    aes_tag = packet[KYBER_CT_LEN + AES_IV_LEN: KYBER_CT_LEN + AES_IV_LEN + AES_TAG_LEN]
+    aes_ct = packet[KYBER_CT_LEN + AES_IV_LEN + AES_TAG_LEN:]
+
+    # Decapsulate: Kyber ciphertext → 32-byte shared secret
+    try:
+        with oqs.KeyEncapsulation("Kyber768", secret_key=_kyber_secret_key_bytes) as kem:
+            shared_secret = kem.decap_secret(kyber_ct)
+    except Exception as exc:
+        raise ValueError("Kyber768 decapsulation failed") from exc
+
+    # AES-256-GCM decrypt using the shared secret as the key
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    try:
+        aes_key = shared_secret[:32]   # Kyber768 shared secret is 32 bytes
+        aesgcm = AESGCM(aes_key)
+        # cryptography library expects ciphertext+tag concatenated
+        plaintext = aesgcm.decrypt(aes_iv, aes_ct + aes_tag, associated_data=None)
+    except Exception as exc:
+        raise ValueError("AES-GCM decryption failed (wrong key or corrupted data)") from exc
+
+    return plaintext
+
+
+# ---------------------------------------------------------------------------
 # ECDSA P-256 device signature verification (Orbitport KMS compatible)
 # ---------------------------------------------------------------------------
 
@@ -272,5 +408,6 @@ def verify_device_signature(payload_str: str, signature: str) -> bool:
         return False
 
 
-# Initialise keys at import time so the public key is ready before first request
+# Initialise keys at import time so the public keys are ready before first request
 _load_or_generate_rsa_keys()
+_load_or_generate_kyber_keys()

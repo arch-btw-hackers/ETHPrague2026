@@ -20,7 +20,7 @@ from eth_account.messages import encode_defunct
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from services.auth import consume_nonce, create_jwt, generate_nonce, get_role, get_server_public_key_pem
+from services.auth import consume_nonce, create_jwt, generate_nonce, get_role, get_server_public_key_pem, get_kyber_public_key_bytes
 from services.blockchain import reverse_resolve_ens
 
 logger = logging.getLogger(__name__)
@@ -166,3 +166,22 @@ async def get_public_keys():
     their sensor payloads before sending to POST /sensors/encrypted-data.
     """
     return {"server_public_key": get_server_public_key_pem()}
+
+
+@router.get("/kyber-public-key")
+async def get_kyber_public_key():
+    """Return the server Kyber768 public key as Base64.
+
+    ESP32 devices call this once at startup to obtain the post-quantum public
+    key used to encapsulate a shared secret for Kyber768+AES-GCM encryption.
+    The returned ``kyber_public_key`` field is standard Base64 (1184 bytes
+    decoded).  The device uses the ``oqs`` / liboqs Kyber768 KEM to produce a
+    1088-byte ciphertext and a 32-byte shared secret, then encrypts telemetry
+    with AES-256-GCM using that secret.
+    """
+    import base64
+    try:
+        pk_bytes = get_kyber_public_key_bytes()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    return {"kyber_public_key": base64.b64encode(pk_bytes).decode()}
