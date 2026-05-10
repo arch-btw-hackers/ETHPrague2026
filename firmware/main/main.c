@@ -63,15 +63,15 @@ static void print_report(void)
         "{\"temp_c\":%.1f,\"acceleration_overload\":%.3f}",
         temp, peak);
 
-    /* Step 3: Encrypt readings with server RSA key (OAEP SHA-256) */
-    char ciphertext[512] = {0};
+    /* Step 3: Encrypt readings with server Kyber key (Kyber768 + AES-256-GCM) */
+    char ciphertext[2048] = {0};
     if (client_encrypt(readings, ciphertext, sizeof(ciphertext)) != ESP_OK) {
         ESP_LOGE(TAG, "Encryption failed, skipping report");
         return;
     }
 
     /* Step 4: Sign  nonce + device_id + ciphertext  via KMS (ECDSA P-256) */
-    char sign_input[1024];
+    char sign_input[4096];
     snprintf(sign_input, sizeof(sign_input), "%s%s%s", nonce, DEVICE_ID, ciphertext);
 
     char signature[512] = {0};

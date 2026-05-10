@@ -4,8 +4,8 @@
 #include "esp_http_client.h"
 #include "esp_random.h"
 #include "cJSON.h"
-#include "mbedtls/pk.h"
-#include "mbedtls/rsa.h"
+#include <oqs/oqs.h>
+#include "mbedtls/gcm.h"
 #include "mbedtls/base64.h"
 
 #include "mbedtls/entropy.h"
@@ -114,48 +114,64 @@ esp_err_t client_encrypt(const char *plaintext,
         return ESP_FAIL;
     }
 
-    mbedtls_pk_context pk;
-    mbedtls_pk_init(&pk);
-
-    int ret = mbedtls_pk_parse_public_key(
-        &pk,
-        (const unsigned char *)s_server_pubkey,
-        strlen(s_server_pubkey) + 1);
-    if (ret != 0) {
-        ESP_LOGE(TAG, "PK parse failed: -0x%04x", (unsigned)-ret);
-        mbedtls_pk_free(&pk);
+    OQS_KEM *kem = OQS_KEM_new(OQS_KEM_alg_kyber_768);
+    if (!kem) {
+        ESP_LOGE(TAG, "Failed to init Kyber-768");
         return ESP_FAIL;
     }
 
-    /* Set OAEP + SHA-256 */
-    mbedtls_rsa_context *rsa = mbedtls_pk_rsa(pk);
-    mbedtls_rsa_set_padding(rsa, MBEDTLS_RSA_PKCS_V21, MBEDTLS_MD_SHA256);
-
-    unsigned char enc_buf[512]; /* RSA-2048 → 256 bytes */
-    size_t enc_len = 0;
-
-    ret = mbedtls_pk_encrypt(&pk,
-                             (const unsigned char *)plaintext, strlen(plaintext),
-                             enc_buf, &enc_len, sizeof(enc_buf),
-                             hw_random, NULL);
-    mbedtls_pk_free(&pk);
-
-    if (ret != 0) {
-        ESP_LOGE(TAG, "RSA-OAEP encrypt failed: -0x%04x", (unsigned)-ret);
+    size_t pk_len = 0;
+    unsigned char *public_key = malloc(kem->length_public_key);
+    mbedtls_base64_decode(public_key, kem->length_public_key, &pk_len, 
+                          (const unsigned char*)s_server_pubkey, strlen(s_server_pubkey));
+    if (pk_len != kem->length_public_key) {
+        ESP_LOGE(TAG, "Invalid Kyber PK length: expected %d, got %d", (int)kem->length_public_key, (int)pk_len);
+        free(public_key);
+        OQS_KEM_free(kem);
         return ESP_FAIL;
     }
 
-    size_t b64_len = 0;
-    ret = mbedtls_base64_encode((unsigned char *)out_b64, b64_size,
-                                &b64_len, enc_buf, enc_len);
-    if (ret != 0) {
-        ESP_LOGE(TAG, "Base64 encode failed");
+    unsigned char *kyber_ct = malloc(kem->length_ciphertext);
+    unsigned char *shared_secret = malloc(kem->length_shared_secret);
+
+    if (OQS_KEM_encaps(kem, kyber_ct, shared_secret, public_key) != OQS_SUCCESS) {
+        ESP_LOGE(TAG, "Kyber encaps failed");
+        free(public_key); free(kyber_ct); free(shared_secret); OQS_KEM_free(kem);
         return ESP_FAIL;
     }
-    out_b64[b64_len] = '\0';
 
-    ESP_LOGI(TAG, "Encrypted %d bytes → %d b64 chars",
-             (int)enc_len, (int)b64_len);
+    unsigned char iv[12];
+    hw_random(NULL, iv, sizeof(iv));
+
+    unsigned char tag[16];
+    size_t pt_len = strlen(plaintext);
+    unsigned char *aes_ct = malloc(pt_len);
+
+    mbedtls_gcm_context gcm;
+    mbedtls_gcm_init(&gcm);
+    mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, shared_secret, 256);
+
+    mbedtls_gcm_crypt_and_tag(&gcm, MBEDTLS_GCM_ENCRYPT, pt_len,
+                              iv, sizeof(iv), NULL, 0,
+                              (const unsigned char*)plaintext, aes_ct, sizeof(tag), tag);
+    mbedtls_gcm_free(&gcm);
+
+    size_t packed_len = kem->length_ciphertext + sizeof(iv) + sizeof(tag) + pt_len;
+    unsigned char *packed = malloc(packed_len);
+    
+    size_t offset = 0;
+    memcpy(packed + offset, kyber_ct, kem->length_ciphertext); offset += kem->length_ciphertext;
+    memcpy(packed + offset, iv, sizeof(iv)); offset += sizeof(iv);
+    memcpy(packed + offset, tag, sizeof(tag)); offset += sizeof(tag);
+    memcpy(packed + offset, aes_ct, pt_len);
+
+    size_t final_b64_len = 0;
+    mbedtls_base64_encode((unsigned char*)out_b64, b64_size, &final_b64_len, packed, packed_len);
+
+    free(public_key); free(kyber_ct); free(shared_secret); free(aes_ct); free(packed);
+    OQS_KEM_free(kem);
+
+    ESP_LOGI(TAG, "Encrypted payload (Kyber768 + AES-GCM) ready, length: %d", (int)final_b64_len);
     return ESP_OK;
 }
 

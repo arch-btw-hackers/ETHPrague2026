@@ -4,8 +4,9 @@ CONFIG_IDF_TARGET="esp32s3"
 # Flash: 8MB (chip has 8MB)
 CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
 
-# Larger app partition
-CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+# Custom partition table
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
 # Disable WiFi power save
 CONFIG_PM_ENABLE=n

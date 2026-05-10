@@ -9,28 +9,15 @@ const port = 3000;
 app.use(express.json());
 
 console.log("🚀 Initializing Mock Server...");
-console.log("Generating RSA-4096 Keypair (this might take a few seconds)...");
-
-// Generate an RSA keypair for the server
-const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
-    modulusLength: 4096,
-    publicKeyEncoding: {
-        type: 'pkcs1',
-        format: 'pem'
-    },
-    privateKeyEncoding: {
-        type: 'pkcs1',
-        format: 'pem'
-    }
-});
-
-console.log("✅ RSA Keypair Generated.");
+console.log("Generating Mock Kyber-768 Public Key (1184 bytes)...");
+const kyberPublicKeyRaw = crypto.randomBytes(1184);
+const kyberPublicKeyBase64 = kyberPublicKeyRaw.toString('base64');
+console.log("✅ Mock Kyber Key Generated.");
 
 // 1. Endpoint to get the server's public key
 app.get('/pubkey', (req, res) => {
     console.log("[GET] /pubkey requested by ESP32");
-    res.type('text/plain');
-    res.send(publicKey);
+    res.json({ public_key: kyberPublicKeyBase64 });
 });
 
 // 2. Endpoint to ingest the encrypted telemetry
@@ -44,23 +31,24 @@ app.post('/ingest', (req, res) => {
     }
 
     try {
-        console.log("Decrypting payload using Server Private Key...");
+        console.log("Kyber768 + AES-GCM Encrypted Payload Received (Base64)");
         
         // Convert base64 ciphertext to buffer
         const encryptedBuffer = Buffer.from(encrypted_payload, 'base64');
+        const kyberCt = encryptedBuffer.slice(0, 1088);
+        const iv = encryptedBuffer.slice(1088, 1088 + 12);
+        const tag = encryptedBuffer.slice(1100, 1100 + 16);
+        const aesCt = encryptedBuffer.slice(1116);
+
+        console.log(`Parsed sizes -> Kyber CT: ${kyberCt.length}, IV: ${iv.length}, Tag: ${tag.length}, AES CT: ${aesCt.length}`);
         
-        // Decrypt using PKCS1 v1.5 (simpler for mbedtls on ESP32)
-        const decryptedBuffer = crypto.privateDecrypt(
-            {
-                key: privateKey,
-                padding: crypto.constants.RSA_PKCS1_PADDING
-            },
-            encryptedBuffer
-        );
-        
-        const decryptedJsonStr = decryptedBuffer.toString('utf8');
-        console.log("✅ Decrypted JSON:");
-        console.log(decryptedJsonStr);
+        // Mock Decryption for test server
+        console.log("Mock Decryption: Assuming success. Generating mock decrypted JSON.");
+        const decryptedJsonStr = JSON.stringify({
+            device_id: "cargo_tracker_9000",
+            nonce: "dummy_nonce",
+            readings: { temp_c: 25.5, acceleration_overload: 1.01 }
+        });
 
         const data = JSON.parse(decryptedJsonStr);
 

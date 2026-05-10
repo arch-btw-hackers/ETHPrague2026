@@ -10,7 +10,8 @@ if(EXISTS ${ENV_FILE})
 endif()
 
 idf_component_register(SRCS "main.c" "sensor.c" "wifi.c" "beacon.c" "auth.c" "kms.c" "time_sync.c" "client.c"
-                       INCLUDE_DIRS ".")
+                       INCLUDE_DIRS "."
+                       PRIV_REQUIRES nvs_flash esp_http_client mbedtls oqs json esp_wifi esp_timer)
 
 # Pass .env values as compile definitions
 if(DEFINED ENV_WIFI_SSID)
