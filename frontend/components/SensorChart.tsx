@@ -69,23 +69,21 @@ export function SensorChart({
   const stroke = panic ? "#FB923C" : ACCENTS[accent];
 
   const merged = useMemo(() => {
-    type Row = { t: number; v?: number; vf?: number };
-    let liveData = data;
-    // Reserve visible room for the forecast: keep only ~3× the forecast
-    // span of historical points so the dashed prediction takes ≈25% width.
+    type Row = { t: number; tOrig: number; v?: number; vf?: number };
+    const rows: Row[] = data.map((d) => ({ t: d.t, tOrig: d.t, v: d.v }));
     if (forecast.length && data.length) {
       const last = data[data.length - 1];
-      const fcEnd = forecast[forecast.length - 1].t;
-      const fcSpan = Math.max(fcEnd - last.t, 1);
-      const cutoff = last.t - fcSpan * 3;
-      const trimmed = data.filter((d) => d.t >= cutoff);
-      if (trimmed.length >= 2) liveData = trimmed;
-    }
-    const rows: Row[] = liveData.map((d) => ({ t: d.t, v: d.v }));
-    if (forecast.length && liveData.length) {
-      const last = liveData[liveData.length - 1];
-      rows.push({ t: last.t, vf: last.v });
-      for (const f of forecast) rows.push({ t: f.t, vf: f.v });
+      const first = data[0];
+      const histSpan = Math.max(last.t - first.t, 60_000);
+      const targetSpan = histSpan * 0.33;
+      const fcFirstT = forecast[0].t;
+      const fcSpan = Math.max(forecast[forecast.length - 1].t - fcFirstT, 1);
+      const scale = targetSpan / fcSpan;
+      rows.push({ t: last.t, tOrig: last.t, vf: last.v });
+      for (const f of forecast) {
+        const remappedT = last.t + (f.t - fcFirstT + fcSpan / forecast.length) * scale;
+        rows.push({ t: remappedT, tOrig: f.t, vf: f.v });
+      }
     }
     return rows;
   }, [data, forecast]);
@@ -212,8 +210,9 @@ export function SensorChart({
                   color: "#E6E9EF",
                 }}
                 labelStyle={{ color: "rgba(255,255,255,0.4)", marginBottom: 2 }}
-                labelFormatter={(ts) => {
-                  const d = new Date(ts as number);
+                labelFormatter={(ts, payload) => {
+                  const orig = (payload && payload[0]?.payload?.tOrig) ?? (ts as number);
+                  const d = new Date(orig);
                   return d.toLocaleString(undefined, {
                     month: "short",
                     day: "numeric",
