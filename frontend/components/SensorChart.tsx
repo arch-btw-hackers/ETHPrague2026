@@ -70,9 +70,20 @@ export function SensorChart({
 
   const merged = useMemo(() => {
     type Row = { t: number; v?: number; vf?: number };
-    const rows: Row[] = data.map((d) => ({ t: d.t, v: d.v }));
+    let liveData = data;
+    // Reserve visible room for the forecast: keep only ~3× the forecast
+    // span of historical points so the dashed prediction takes ≈25% width.
     if (forecast.length && data.length) {
       const last = data[data.length - 1];
+      const fcEnd = forecast[forecast.length - 1].t;
+      const fcSpan = Math.max(fcEnd - last.t, 1);
+      const cutoff = last.t - fcSpan * 3;
+      const trimmed = data.filter((d) => d.t >= cutoff);
+      if (trimmed.length >= 2) liveData = trimmed;
+    }
+    const rows: Row[] = liveData.map((d) => ({ t: d.t, v: d.v }));
+    if (forecast.length && liveData.length) {
+      const last = liveData[liveData.length - 1];
       rows.push({ t: last.t, vf: last.v });
       for (const f of forecast) rows.push({ t: f.t, vf: f.v });
     }
