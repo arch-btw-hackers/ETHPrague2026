@@ -14,6 +14,7 @@ import {
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
+  XAxis,
 } from "recharts";
 import { motion } from "framer-motion";
 
@@ -182,6 +183,13 @@ export function SensorChart({
                   </feMerge>
                 </filter>
               </defs>
+              <XAxis
+                dataKey="t"
+                type="number"
+                domain={["dataMin", "dataMax"]}
+                scale="time"
+                hide
+              />
               <Tooltip
                 cursor={{ stroke: "rgba(255,255,255,0.08)", strokeWidth: 1 }}
                 contentStyle={{
