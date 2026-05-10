@@ -5,7 +5,7 @@ WORKDIR /app
 # Build and install liboqs (required by the oqs Python package for Kyber768)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         cmake ninja-build libssl-dev git build-essential \
-    && git clone --depth 1 https://github.com/open-quantum-safe/liboqs.git /tmp/liboqs \
+    && git clone --depth 1 --branch 0.10.1 https://github.com/open-quantum-safe/liboqs.git /tmp/liboqs \
     && cmake -S /tmp/liboqs -B /tmp/liboqs/build \
             -GNinja \
             -DBUILD_SHARED_LIBS=ON \

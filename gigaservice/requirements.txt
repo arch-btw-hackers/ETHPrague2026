@@ -7,4 +7,4 @@ web3==7.9.0
 cryptography==44.0.3
 PyJWT==2.10.1
 python-multipart==0.0.20
-oqs
+oqs==0.10.1
