@@ -168,7 +168,7 @@ async def get_device(
 @router.get("/stream")
 async def stream_devices(
     request: Request,
-    interval: float = Query(default=2.0, ge=0.5, le=60.0, description="Push interval in seconds"),
+    interval: float = Query(default=0.5, ge=0.5, le=60.0, description="Push interval in seconds"),
 ):
     """Server-Sent Events stream — pushes all device snapshots every `interval` seconds.
 
