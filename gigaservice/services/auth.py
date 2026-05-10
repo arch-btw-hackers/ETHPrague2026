@@ -228,8 +228,9 @@ def _load_or_generate_kyber_keys() -> None:
 
     try:
         import oqs  # type: ignore[import]
-    except ImportError:
-        logger.warning("liboqs/oqs not installed — Kyber768 unavailable")
+        _ = oqs.KeyEncapsulation  # raises AttributeError if native lib missing
+    except (ImportError, AttributeError):
+        logger.warning("liboqs/oqs not available (native library missing) — Kyber768 unavailable")
         return
 
     # Check env vars first (base64-encoded)
@@ -299,8 +300,9 @@ def decrypt_kyber_aes_gcm(packet_b64: str) -> bytes:
     import base64
     try:
         import oqs  # type: ignore[import]
-    except ImportError:
-        raise ValueError("liboqs not installed — Kyber768 decryption unavailable")
+        _ = oqs.KeyEncapsulation  # raises AttributeError if native lib missing
+    except (ImportError, AttributeError):
+        raise ValueError("liboqs not available (native library missing) — Kyber768 decryption unavailable")
 
     if _kyber_secret_key_bytes is None:
         _load_or_generate_kyber_keys()
