@@ -44,8 +44,6 @@ class ShipmentInitRequest(BaseModel):
     """What the caller sends to POST /initialize."""
     temp_c: float
     acceleration: float
-    receiver_wallet: str | None = None       # Ethereum address of the receiver
-    tracker_service_wallet: str | None = None  # Ethereum address of tracker service
 
 
 class ShipmentInitResponse(BaseModel):
@@ -76,16 +74,12 @@ async def create_package(
 async def initialize_package_on_chain(req: ShipmentInitRequest):
     """Register a new shipment on-chain. No auth required."""
     package_ref = str(uuid.uuid4())
-
-    # Default wallets: use the server's own address for both if not provided
     server_address = os.environ.get("SERVER_ADDRESS", "0x0000000000000000000000000000000000000000")
-    receiver = req.receiver_wallet or server_address
-    tracker_svc = req.tracker_service_wallet or server_address
 
     data = PackageContractInit(
         package_ref=package_ref,
-        receiver_wallet=receiver,
-        tracker_service_wallet=tracker_svc,
+        receiver_wallet=server_address,
+        tracker_service_wallet=server_address,
     )
     try:
         tx_hash = await create_shipment_on_chain(data)
