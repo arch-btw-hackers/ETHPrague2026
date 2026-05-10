@@ -1,29 +1,40 @@
 FROM python:3.12-slim
 
-# Добавил pkg-config на всякий случай, убрал libssl-dev за ненадобностью
+# 1. Ставим инструменты для автосборки C-кода (из Quickstart OQS)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
     git \
     ninja-build \
-    pkg-config \
+    libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /opt
-# Отключаем OpenSSL (-DOQS_USE_OPENSSL=OFF), чтобы CMake не искал системные либы
-# Включаем DIST_BUILD, чтобы код точно запустился на процессоре сервера без ошибок совместимости
-RUN git clone --depth 1 --branch 0.8.0 https://github.com/open-quantum-safe/liboqs.git \
-    && cd liboqs \
-    && mkdir build && cd build \
-    && cmake -GNinja -DBUILD_SHARED_LIBS=ON -DOQS_USE_OPENSSL=OFF -DOQS_DIST_BUILD=ON .. \
-    && ninja install
-
-ENV LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
-
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
 
+# 2. Копируем зависимости
+COPY requirements.txt .
+
+# 3. КРИТИЧНО: Вырезаем возможные кривые пакеты oqs из requirements.txt, 
+# чтобы pip не подтянул старый хлам из PyPI, а поставил только FastAPI, web3 и т.д.
+RUN sed -i '/^oqs/d' requirements.txt && \
+    sed -i '/^liboqs-python/d' requirements.txt && \
+    pip install --no-cache-dir -r requirements.txt
+
+# 4. Устанавливаем официальный враппер напрямую из GitHub
+RUN git clone --depth 1 https://github.com/open-quantum-safe/liboqs-python.git \
+    && cd liboqs-python \
+    && pip install --no-cache-dir . \
+    && cd .. \
+    && rm -rf liboqs-python
+
+# 5. МАГИЯ АВТОСБОРКИ
+# Делаем один "холостой" импорт. В этот момент питон не найдет библиотеку, 
+# сам скачает C-код liboqs, соберет его через CMake и положит куда надо.
+RUN python -c "import oqs; print('Kyber (liboqs) successfully auto-compiled and loaded!')"
+
+# 6. Копируем код твоего сервиса
 COPY . .
 
+RUN mkdir -p /data && chmod 777 /data
+EXPOSE 8000
 CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
