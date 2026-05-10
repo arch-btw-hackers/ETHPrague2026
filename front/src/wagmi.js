@@ -1,6 +1,6 @@
 import '@rainbow-me/rainbowkit/styles.css';
 import { getDefaultConfig } from '@rainbow-me/rainbowkit';
-import { mainnet, base, polygon, optimism, arbitrum } from 'wagmi/chains';
+import { sepolia } from 'wagmi/chains';
 import {
     injectedWallet,
     rainbowWallet,
@@ -13,7 +13,7 @@ import {
 export const config = getDefaultConfig({
     appName: 'wallet-connect',
     projectId: 'e21c759ddabfdee2fce1c526b96833cd',
-    chains: [mainnet, base, polygon, optimism, arbitrum],
+    chains: [sepolia],
     ssr: false,
     wallets: [
         {

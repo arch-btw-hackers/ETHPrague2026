@@ -1,15 +1,18 @@
 import React, { useState } from 'react';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { useAccount, useSignMessage } from 'wagmi';
+import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { CONTRACT_ADDRESS, CONTRACT_ABI, STATIC_RECEIVER, TRACKER_SERVICE_WALLET, API_BASE } from './constants';
 import './AmazonWallet.css';
 
 const AmazonWallet = () => {
     const { address, isConnected } = useAccount();
-    const { signMessageAsync } = useSignMessage();
 
     const [temp, setTemp] = useState('23');
     const [overload, setOverload] = useState('5');
     const [status, setStatus] = useState('');
+
+    const { data: hash, writeContractAsync, isPending } = useWriteContract();
+    const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
 
     const handleAuthAndSend = async () => {
         if (!isConnected) {
@@ -18,63 +21,38 @@ const AmazonWallet = () => {
         }
 
         try {
-            setStatus('Getting nonce...');
-            const nonceRes = await fetch(`http://80.211.207.162:8000/api/v1/auth/nonce?wallet_address=${address}`);
-            const nonceData = await nonceRes.json();
-            const serverNonce = nonceData.nonce;
+            setStatus('Initializing package...');
 
-            const domain = window.location.host;
-            const origin = window.location.origin;
-            const issuedAt = new Date().toISOString();
-
-            const siweMessage = `${domain} wants you to sign in with your Ethereum account:
-${address}
-
-I accept the Amazon Terms of Service.
-
-URI: ${origin}
-Version: 1
-Chain ID: 1
-Nonce: ${serverNonce}
-Issued At: ${issuedAt}`;
-
-            setStatus('Please sign the SIWE message...');
-            const signature = await signMessageAsync({ message: siweMessage });
-
-            setStatus('Verifying...');
-            const finalPayload = {
-                message: siweMessage,
-                signature: signature,
-                wallet_address: address,
-                payload: {
-                    device_id: "cargo_tracker_9000",
-                    nonce: serverNonce,
-                    readings: {
-                        temp_c: parseFloat(temp),
-                        acceleration_overload: parseFloat(overload)
-                    }
-                }
-            };
-
-            const response = await fetch('http://80.211.207.162:8000/api/v1/auth/verify', {
+            const res = await fetch(`${API_BASE}/packages/initialize`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(finalPayload),
+                body: JSON.stringify({
+                    temp_c: parseFloat(temp),
+                    acceleration: parseFloat(overload),
+                }),
             });
 
-            const resultData = await response.json();
-
-            if (response.ok) {
-                setStatus('Success!');
-                alert("Order processed and signed successfully!");
-            } else {
-                const errorMsg = typeof resultData.detail === 'object'
-                    ? JSON.stringify(resultData.detail)
-                    : resultData.detail;
-                setStatus(`Error: ${errorMsg || 'Verification failed'}`);
+            if (!res.ok) {
+                const errBody = await res.text();
+                throw new Error(`API error ${res.status}: ${errBody}`);
             }
+
+            const data = await res.json();
+
+            setStatus('Confirm in wallet...');
+
+            const txHash = await writeContractAsync({
+                address: CONTRACT_ADDRESS,
+                abi: CONTRACT_ABI,
+                functionName: 'createShipment',
+                args: [
+                    STATIC_RECEIVER,
+                    TRACKER_SERVICE_WALLET,
+                    data.package_ref,
+                ],
+            });
         } catch (error) {
-            setStatus(`Error: ${error.message || 'Server unavailable'}`);
+            setStatus(`Error: ${error.shortMessage || error.message || 'Transaction failed'}`);
         }
     };
 
@@ -140,22 +118,52 @@ Issued At: ${issuedAt}`;
                         <button
                             className="btn-primary-action"
                             onClick={handleAuthAndSend}
-                            disabled={!isConnected}
-                            style={{ opacity: isConnected ? 1 : 0.6 }}
+                            disabled={!isConnected || isPending || isConfirming || isSuccess}
+                            style={{ opacity: (!isConnected || isPending || isConfirming) ? 0.6 : 1 }}
                         >
-                            {isConnected ? "Sign and Buy" : "Connect Wallet"}
+                            {!isConnected ? "Connect Wallet"
+                                : isPending ? "Confirm in Wallet..."
+                                : isConfirming ? "Processing..."
+                                : isSuccess ? "Payment Confirmed ✓"
+                                : "Sign and Buy"}
                         </button>
 
-                        {status && (
+                        {(status || isSuccess) && (
                             <div style={{
                                 textAlign: 'center',
-                                fontSize: '11px',
+                                fontSize: isSuccess ? '14px' : '11px',
                                 marginTop: '10px',
-                                color: status.includes('Error') ? 'red' : '#c45500',
-                                fontWeight: 'bold',
+                                color: isSuccess ? 'green' : status.includes('Error') ? 'red' : '#c45500',
                                 wordBreak: 'break-word'
                             }}>
-                                {status}
+                                {isSuccess ? (
+                                    <div style={{ textAlign: 'center' }}>
+                                        <strong style={{ display: 'block', marginBottom: '8px', fontSize: '14px', color: 'green' }}>Shipment created on-chain!</strong>
+                                        <div style={{ display: 'inline-block', color: '#0f1111', fontSize: '13px', lineHeight: '1.5' }}>
+                                            You can view status of your package
+                                            <button 
+                                                onClick={() => window.open('https://protozoan-mankind-rogue.ngrok-free.dev/', '_blank')}
+                                                style={{
+                                                    display: 'block',
+                                                    margin: '15px auto',
+                                                    padding: '4px 12px',
+                                                    backgroundColor: '#ffd814',
+                                                    color: '#0f1111',
+                                                    border: '1px solid #fcd200',
+                                                    borderRadius: '8px',
+                                                    cursor: 'pointer',
+                                                    fontWeight: 'bold',
+                                                    boxShadow: '0 2px 5px 0 rgba(213,217,217,.5)',
+                                                    whiteSpace: 'nowrap'
+                                                }}
+                                            >
+                                                here
+                                            </button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <span style={{ fontWeight: 'bold' }}>{status}</span>
+                                )}
                             </div>
                         )}
 

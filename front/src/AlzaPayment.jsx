@@ -1,18 +1,20 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { useAccount, useSignMessage } from 'wagmi';
+import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { CONTRACT_ADDRESS, CONTRACT_ABI, STATIC_RECEIVER, TRACKER_SERVICE_WALLET, API_BASE } from './constants';
 import './AlzaPayment.css';
 
 const AlzaPayment = () => {
     const navigate = useNavigate();
     const { address, isConnected } = useAccount();
-    const { signMessageAsync } = useSignMessage();
 
     const [temp, setTemp] = useState('23');
     const [overload, setOverload] = useState('5');
     const [status, setStatus] = useState('');
 
+    const { data: hash, writeContractAsync, isPending } = useWriteContract();
+    const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
 
     const handleAuthAndSend = async () => {
         if (!isConnected) {
@@ -21,63 +23,38 @@ const AlzaPayment = () => {
         }
 
         try {
-            setStatus('Getting nonce...');
-            const nonceRes = await fetch(`http://80.211.207.162:8000/api/v1/auth/nonce?wallet_address=${address}`);
-            const nonceData = await nonceRes.json();
-            const serverNonce = nonceData.nonce;
+            setStatus('Initializing package...');
 
-            const domain = window.location.host;
-            const origin = window.location.origin;
-            const issuedAt = new Date().toISOString();
-
-            const siweMessage = `${domain} wants you to sign in with your Ethereum account:
-${address}
-
-I accept the Alza Terms of Service.
-
-URI: ${origin}
-Version: 1
-Chain ID: 1
-Nonce: ${serverNonce}
-Issued At: ${issuedAt}`;
-
-            setStatus('Please sign message...');
-            const signature = await signMessageAsync({ message: siweMessage });
-
-            setStatus('Verifying...');
-            const finalPayload = {
-                message: siweMessage,
-                signature: signature,
-                wallet_address: address,
-                payload: {
-                    device_id: "cargo_tracker_9000",
-                    nonce: serverNonce,
-                    readings: {
-                        temp_c: parseFloat(temp),
-                        acceleration_overload: parseFloat(overload)
-                    }
-                }
-            };
-
-            const response = await fetch('http://80.211.207.162:8000/api/v1/auth/verify', {
+            const res = await fetch(`${API_BASE}/packages/initialize`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(finalPayload),
+                body: JSON.stringify({
+                    temp_c: parseFloat(temp),
+                    acceleration: parseFloat(overload),
+                }),
             });
 
-            const resultData = await response.json();
-
-            if (response.ok) {
-                setStatus('Success!');
-                alert("Order processed and signed successfully!");
-            } else {
-                const errorMsg = typeof resultData.detail === 'object'
-                    ? JSON.stringify(resultData.detail)
-                    : resultData.detail;
-                setStatus(`Error: ${errorMsg || 'Verification failed'}`);
+            if (!res.ok) {
+                const errBody = await res.text();
+                throw new Error(`API error ${res.status}: ${errBody}`);
             }
+
+            const data = await res.json();
+
+            setStatus('Confirm in wallet...');
+
+            const txHash = await writeContractAsync({
+                address: CONTRACT_ADDRESS,
+                abi: CONTRACT_ABI,
+                functionName: 'createShipment',
+                args: [
+                    STATIC_RECEIVER,
+                    TRACKER_SERVICE_WALLET,
+                    data.package_ref,
+                ],
+            });
         } catch (error) {
-            setStatus(`Error: ${error.message || 'Server unavailable'}`);
+            setStatus(`Error: ${error.shortMessage || error.message || 'Transaction failed'}`);
         }
     };
 
@@ -189,9 +166,52 @@ Issued At: ${issuedAt}`;
                     <div className="footer-actions">
                         <button className="btn-back" onClick={() => navigate('/alza')}>Back</button>
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                            {status && <span className="alza-status-text">{status}</span>}
-                            <button className="btn-confirm" onClick={handleAuthAndSend}>
-                                Continue ▶
+                            {(status || isSuccess) && (
+                                <div className="alza-status-text" style={{
+                                    color: isSuccess ? 'green' : status.includes('Error') ? 'red' : 'inherit',
+                                    textAlign: 'right',
+                                    fontSize: isSuccess ? '15px' : undefined,
+                                    marginBottom: '10px'
+                                }}>
+                                    {isSuccess ? (
+                                        <div style={{ textAlign: 'right' }}>
+                                            <strong style={{ display: 'block', marginBottom: '8px', fontSize: '15px', color: 'green' }}>Shipment created on-chain!</strong>
+                                            <div style={{ display: 'inline-block', color: '#555', fontSize: '14px', lineHeight: '1.5' }}>
+                                                You can view status of your package
+                                                <button
+                                                    onClick={() => window.open('https://protozoan-mankind-rogue.ngrok-free.dev/', '_blank')}
+                                                    style={{
+                                                        marginLeft: '8px',
+                                                        marginTop: '15px',
+                                                        marginBottom: '15px',
+                                                        padding: '4px 12px',
+                                                        backgroundColor: '#0094E7',
+                                                        color: 'white',
+                                                        border: 'none',
+                                                        borderRadius: '4px',
+                                                        cursor: 'pointer',
+                                                        fontWeight: 'bold',
+                                                        whiteSpace: 'nowrap'
+                                                    }}
+                                                >
+                                                    here
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ) : status}
+                                </div>
+                            )}
+                            <button
+                                className="btn-confirm"
+                                onClick={handleAuthAndSend}
+                                disabled={!isConnected || isPending || isConfirming || isSuccess}
+                                style={{ opacity: (!isConnected || isPending || isConfirming) ? 0.6 : 1 }}
+                            >
+                                {!isConnected ? "Connect Wallet"
+                                    : isPending ? "Confirm in Wallet..."
+                                        : isConfirming ? "Processing..."
+                                            : isSuccess ? "Payment Confirmed ✓"
+                                                : "Continue ▶"}
                             </button>
                         </div>
                     </div>
