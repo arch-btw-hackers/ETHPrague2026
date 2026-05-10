@@ -1,0 +1,26 @@
+[package]
+name = "trusted_applet"
+version = "0.1.0"
+edition = "2021"
+description = "Rust Trusted Applet for USB Armory MK II (GoTEE)"
+
+# src/main.rs lives at the repo root (user-facing); all other Rust/Go/
+# mkimage scaffolding is kept in docker/ to keep the root clean.
+[[bin]]
+name = "trusted_applet"
+path = "../src/main.rs"
+
+[dependencies]
+gotee_syscall = { path = "gotee_syscall" }
+
+# Post-quantum cryptography — pure Rust, no_std compatible.
+# ML-KEM (FIPS 203, formerly CRYSTALS-Kyber) for key encapsulation.
+# ML-DSA (FIPS 204, formerly CRYSTALS-Dilithium) for digital signatures.
+ml-kem   = { version = "0.3",         default-features = false }
+ml-dsa   = { version = "0.1.0-pre.4", default-features = false }
+base64ct = { version = "1",           default-features = false }
+
+[profile.release]
+panic = "abort"
+opt-level = "s"
+lto = true
