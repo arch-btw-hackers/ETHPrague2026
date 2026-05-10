@@ -3,10 +3,14 @@ Dashboard API — aggregated live view of all devices for the frontend.
 
 GET /dashboard/devices           — all devices with latest telemetry snapshot
 GET /dashboard/devices/{id}      — single device + last N telemetry records
+GET /dashboard/stream            — Server-Sent Events live stream (2 s interval)
 """
+import asyncio
+import json
 import logging
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from storage.swarm import download_json, list_all_entries
@@ -64,21 +68,6 @@ class DeviceDetail(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _extract_reading(record: dict) -> tuple[LatestReading, bool | None, str | None, str | None, str | None]:
-    readings = record.get("readings") or {}
-    return (
-        LatestReading(
-            temp_c=readings.get("temp_c"),
-            acceleration_overload=readings.get("acceleration_overload"),
-            lat=readings.get("lat"),
-            lon=readings.get("lon"),
-        ),
-        record.get("is_valid"),
-        record.get("reason"),
-        record.get("timestamp"),
-        record.get("nonce"),
-    )
-
 
 async def _fetch_latest(hash_: str) -> dict | None:
     try:
@@ -86,6 +75,27 @@ async def _fetch_latest(hash_: str) -> dict | None:
     except Exception as exc:
         logger.warning("Could not fetch telemetry %s from Swarm: %s", hash_, exc)
         return None
+
+
+def _summary_from_index(device_id: str, entry: dict) -> DeviceSummary:
+    """Build a DeviceSummary from the index entry (no Swarm call needed)."""
+    lr = entry.get("last_reading") or {}
+    reading = LatestReading(
+        temp_c=lr.get("temp_c"),
+        acceleration_overload=lr.get("acceleration_overload"),
+        lat=lr.get("lat"),
+        lon=lr.get("lon"),
+    ) if lr else None
+    return DeviceSummary(
+        device_id=device_id,
+        conditions_hash=entry.get("conditions_hash"),
+        latest_telemetry_hash=entry.get("latest_telemetry_hash"),
+        latest_reading=reading,
+        is_valid=lr.get("is_valid"),
+        reason=lr.get("reason"),
+        timestamp=lr.get("timestamp"),
+        nonce=lr.get("nonce"),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -96,41 +106,14 @@ async def _fetch_latest(hash_: str) -> dict | None:
 async def list_devices():
     """Return all registered devices with their latest telemetry snapshot.
 
-    Works even when Swarm is unavailable — in that case latest_reading will
-    be null but the device_id and hash are still returned.
+    Uses last_reading cached in the index — works even when Swarm is down.
     """
     index = await list_all_entries()
-    result: list[DeviceSummary] = []
-
-    for device_id, entry in index.items():
-        # Skip tracker metadata entries (registered via /trackers/)
-        if device_id.startswith(_TRACKER_PREFIX):
-            continue
-
-        latest_hash: str | None = entry.get("latest_telemetry_hash")
-        reading: LatestReading | None = None
-        is_valid: bool | None = None
-        reason: str | None = None
-        timestamp: str | None = None
-        nonce: str | None = None
-
-        if latest_hash:
-            record = await _fetch_latest(latest_hash)
-            if record:
-                reading, is_valid, reason, timestamp, nonce = _extract_reading(record)
-
-        result.append(DeviceSummary(
-            device_id=device_id,
-            conditions_hash=entry.get("conditions_hash"),
-            latest_telemetry_hash=latest_hash,
-            latest_reading=reading,
-            is_valid=is_valid,
-            reason=reason,
-            timestamp=timestamp,
-            nonce=nonce,
-        ))
-
-    return result
+    return [
+        _summary_from_index(device_id, entry)
+        for device_id, entry in index.items()
+        if not device_id.startswith(_TRACKER_PREFIX)
+    ]
 
 
 @router.get("/devices/{device_id}", response_model=DeviceDetail)
@@ -179,4 +162,45 @@ async def get_device(
         conditions_hash=entry.get("conditions_hash"),
         latest_telemetry_hash=entry.get("latest_telemetry_hash"),
         history=history,
+    )
+
+
+@router.get("/stream")
+async def stream_devices(
+    request: Request,
+    interval: float = Query(default=2.0, ge=0.5, le=60.0, description="Push interval in seconds"),
+):
+    """Server-Sent Events stream — pushes all device snapshots every `interval` seconds.
+
+    Frontend usage:
+        const es = new EventSource('/api/v1/dashboard/stream');
+        es.onmessage = e => {
+            const devices = JSON.parse(e.data);
+            // devices is the same shape as GET /dashboard/devices
+        };
+    """
+    async def event_generator():
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                index = await list_all_entries()
+                devices = [
+                    _summary_from_index(device_id, entry).model_dump()
+                    for device_id, entry in index.items()
+                    if not device_id.startswith(_TRACKER_PREFIX)
+                ]
+                yield f"data: {json.dumps(devices)}\n\n"
+            except Exception as exc:
+                logger.warning("SSE push error: %s", exc)
+                yield f"event: error\ndata: {json.dumps({'error': str(exc)})}\n\n"
+            await asyncio.sleep(interval)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # disable nginx buffering
+        },
     )

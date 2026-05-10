@@ -322,6 +322,24 @@ async def receive_sensor_data(data: SignedRequest, background_tasks: BackgroundT
         "timestamp": now.isoformat(),
         "prev_hash": entry.get("latest_telemetry_hash"),
     }
+    # Always persist last reading to index — dashboard works even without Swarm
+    try:
+        await set_device_entry(
+            payload.device_id,
+            last_reading={
+                "temp_c": readings.temp_c,
+                "acceleration_overload": readings.acceleration_overload,
+                "lat": getattr(readings, "lat", None),
+                "lon": getattr(readings, "lon", None),
+                "is_valid": is_valid,
+                "reason": reason,
+                "timestamp": now.isoformat(),
+                "nonce": payload.nonce,
+            },
+        )
+    except Exception:
+        logger.warning("Index write (last_reading) failed for device=%s — dashboard may lag", payload.device_id)
+
     new_hash: str | None = None
     try:
         new_hash = await upload_json(record)
