@@ -1,0 +1,4 @@
+{
+  "_comment": "Map lowercase Ethereum address -> role. Roles: admin, provider, courier, user.",
+  "0x0000000000000000000000000000000000000001": "admin"
+}

@@ -1,0 +1,14 @@
+# env files with secrets
+.dev.env
+.prod.env
+
+# Foundry
+out/
+cache/
+lib/
+broadcast/
+
+# OS
+.DS_Store
+.qodo
+.claude

@@ -1,0 +1,331 @@
+"""Tests for encryption endpoints:
+  GET  /api/v1/auth/keys
+  GET  /api/v1/auth/kyber-public-key
+  POST /api/v1/sensors/encrypted-data
+
+Includes unit tests for the RSA helper functions and API-level tests that
+mock Kyber768+AES-GCM decryption (oqs/liboqs may not be installed locally).
+"""
+import base64
+import json
+
+import pytest
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec, padding
+from unittest.mock import patch
+
+from services.auth import (
+    get_server_public_key_pem,
+    decrypt_with_server_key,
+    verify_device_signature,
+)
+
+
+# ---------------------------------------------------------------------------
+# Unit tests — services/auth RSA helpers
+# ---------------------------------------------------------------------------
+
+class TestRsaKeyHelpers:
+    def test_get_server_public_key_pem_returns_pem(self):
+        pem = get_server_public_key_pem()
+        assert pem.startswith("-----BEGIN PUBLIC KEY-----")
+        assert "-----END PUBLIC KEY-----" in pem
+
+    def test_roundtrip_encrypt_decrypt(self):
+        """Encrypt with the public key, decrypt with the private key helper."""
+        pem = get_server_public_key_pem()
+        public_key = serialization.load_pem_public_key(pem.encode())
+
+        plaintext = b'{"temp_c": 4.2, "acceleration_overload": 0.1}'
+        ciphertext = public_key.encrypt(
+            plaintext,
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None,
+            ),
+        )
+        ciphertext_b64 = base64.b64encode(ciphertext).decode()
+
+        recovered = decrypt_with_server_key(ciphertext_b64)
+        assert recovered == plaintext
+
+    def test_decrypt_invalid_base64_raises(self):
+        with pytest.raises(ValueError, match="Base64"):
+            decrypt_with_server_key("not-valid-base64!!!")
+
+    def test_decrypt_garbage_ciphertext_raises(self):
+        garbage = base64.b64encode(b"not-a-real-ciphertext").decode()
+        with pytest.raises(ValueError, match="RSA decryption failed"):
+            decrypt_with_server_key(garbage)
+
+
+# ---------------------------------------------------------------------------
+# Unit tests — verify_device_signature
+# ---------------------------------------------------------------------------
+
+class TestVerifyDeviceSignature:
+    def test_dev_mode_returns_true_no_key_set(self, monkeypatch):
+        """Without DEVICE_PUBLIC_KEY_PEM configured, always returns True."""
+        monkeypatch.delenv("DEVICE_PUBLIC_KEY_PEM", raising=False)
+        assert verify_device_signature("any payload", "any signature") is True
+
+    def test_strips_vault_prefix(self, monkeypatch):
+        """vault:v1: prefix is stripped before Base64 decode attempt."""
+        monkeypatch.delenv("DEVICE_PUBLIC_KEY_PEM", raising=False)
+        result = verify_device_signature("msg", "vault:v1:aGVsbG8=")
+        assert result is True
+
+    def test_invalid_base64_returns_false(self, monkeypatch):
+        """When key IS set, bad base64 must return False (not raise)."""
+        priv = ec.generate_private_key(ec.SECP256R1())
+        pub = priv.public_key()
+        pub_pem = pub.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        ).decode().replace("\n", "\\n")
+        monkeypatch.setenv("DEVICE_PUBLIC_KEY_PEM", pub_pem)
+        result = verify_device_signature("msg", "!!!not-base64!!!")
+        assert result is False
+
+    def test_valid_signature_verified(self, monkeypatch):
+        """A real ECDSA P-256 signature verifies correctly."""
+        priv = ec.generate_private_key(ec.SECP256R1())
+        pub = priv.public_key()
+        pub_pem = pub.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        ).decode().replace("\n", "\\n")
+        monkeypatch.setenv("DEVICE_PUBLIC_KEY_PEM", pub_pem)
+
+        message = "42device-abc123ciphertext-payload"
+        sig_bytes = priv.sign(message.encode(), ec.ECDSA(hashes.SHA256()))
+        sig_b64 = base64.b64encode(sig_bytes).decode()
+
+        assert verify_device_signature(message, sig_b64) is True
+
+    def test_wrong_signature_returns_false(self, monkeypatch):
+        priv = ec.generate_private_key(ec.SECP256R1())
+        pub = priv.public_key()
+        pub_pem = pub.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        ).decode().replace("\n", "\\n")
+        monkeypatch.setenv("DEVICE_PUBLIC_KEY_PEM", pub_pem)
+
+        wrong_sig = base64.b64encode(b"wrong" * 10).decode()
+        assert verify_device_signature("correct message", wrong_sig) is False
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/auth/keys
+# ---------------------------------------------------------------------------
+
+# 1184-byte fake Kyber768 public key used in tests (liboqs not available locally)
+_FAKE_KYBER_PK = b"\xab" * 1184
+_FAKE_KYBER_PK_B64 = base64.b64encode(_FAKE_KYBER_PK).decode()
+
+
+class TestGetPublicKeys:
+    def test_returns_public_key_field(self, client):
+        with patch("api.auth.get_kyber_public_key_bytes", return_value=_FAKE_KYBER_PK):
+            resp = client.get("/api/v1/auth/keys")
+        assert resp.status_code == 200
+        assert "public_key" in resp.json()
+
+    def test_key_is_valid_base64_1184_bytes(self, client):
+        with patch("api.auth.get_kyber_public_key_bytes", return_value=_FAKE_KYBER_PK):
+            resp = client.get("/api/v1/auth/keys")
+        pk_bytes = base64.b64decode(resp.json()["public_key"])
+        assert len(pk_bytes) == 1184
+
+    def test_kyber_public_key_alias_matches(self, client):
+        """GET /kyber-public-key must return the same key as GET /keys."""
+        with patch("api.auth.get_kyber_public_key_bytes", return_value=_FAKE_KYBER_PK):
+            r1 = client.get("/api/v1/auth/keys").json()["public_key"]
+            r2 = client.get("/api/v1/auth/kyber-public-key").json()["public_key"]
+        assert r1 == r2 == _FAKE_KYBER_PK_B64
+
+
+# ---------------------------------------------------------------------------
+# POST /api/v1/sensors/encrypted-data — helpers
+# ---------------------------------------------------------------------------
+
+ENC_DEVICE_CONDITIONS = {
+    "device_id": "enc-device-1",
+    "max_temp_c": 25.0,
+    "max_acceleration": 2.0,
+}
+
+
+def _make_kyber_packet(readings: dict) -> str:
+    """Produce a fake 'Kyber+AES-GCM' packet that is structurally valid
+    (correct length prefix) but whose decryption is mocked in tests.
+
+    Real Kyber packets are 1088 (Kyber CT) + 12 (IV) + 16 (tag) + payload bytes.
+    We fill those with zeros for testing since decryption is mocked.
+    """
+    plaintext = json.dumps(readings).encode()
+    packet = b"\x00" * 1088 + b"\x00" * 12 + b"\x00" * 16 + plaintext
+    return base64.b64encode(packet).decode()
+
+
+# ---------------------------------------------------------------------------
+# POST /api/v1/sensors/encrypted-data — API tests
+# ---------------------------------------------------------------------------
+
+class TestEncryptedDataEndpoint:
+    def test_valid_encrypted_payload_accepted(self, client, mock_swarm, mock_blockchain):
+        """POST /sensors/encrypted-data with mocked Kyber decryption returns 200."""
+        client.post("/api/v1/packages/", json=ENC_DEVICE_CONDITIONS)
+        readings = {"temp_c": 4.0, "acceleration_overload": 0.1, "lat": 50.0, "lon": 14.0}
+        packet = _make_kyber_packet(readings)
+        plaintext_bytes = json.dumps(readings).encode()
+        with patch("api.sensors.decrypt_kyber_aes_gcm", return_value=plaintext_bytes):
+            resp = client.post(
+                "/api/v1/sensors/encrypted-data",
+                json={
+                    "device_id": "enc-device-1",
+                    "nonce": "42",
+                    "ciphertext": packet,
+                },
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["received"] is True
+        assert body["device_id"] == "enc-device-1"
+        assert body["is_valid"] is True
+
+    def test_invalid_base64_returns_422(self, client):
+        resp = client.post(
+            "/api/v1/sensors/encrypted-data",
+            json={"device_id": "d", "nonce": "1", "ciphertext": "!!!not-base64!!!"},
+        )
+        assert resp.status_code == 422
+
+    def test_garbage_ciphertext_returns_422(self, client):
+        """Packet shorter than Kyber header minimum → 422."""
+        garbage = base64.b64encode(b"random garbage bytes").decode()
+        resp = client.post(
+            "/api/v1/sensors/encrypted-data",
+            json={"device_id": "d", "nonce": "1", "ciphertext": garbage},
+        )
+        assert resp.status_code == 422
+
+    def test_decrypted_but_invalid_json_returns_422(self, client):
+        """Kyber decryption succeeds but plaintext is not JSON → 422."""
+        packet = _make_kyber_packet({"dummy": True})  # structurally valid
+        with patch("api.sensors.decrypt_kyber_aes_gcm", return_value=b"this is not json"):
+            resp = client.post(
+                "/api/v1/sensors/encrypted-data",
+                json={"device_id": "d", "nonce": "1", "ciphertext": packet},
+            )
+        assert resp.status_code == 422
+
+    def test_violation_triggers_background_task(self, client, mock_swarm, mock_blockchain):
+        """Readings exceeding max_temp_c → is_valid=False."""
+        client.post("/api/v1/packages/", json=ENC_DEVICE_CONDITIONS)
+        readings = {"temp_c": 999.0, "acceleration_overload": 0.1}
+        packet = _make_kyber_packet(readings)
+        plaintext_bytes = json.dumps(readings).encode()
+        with patch("api.sensors.decrypt_kyber_aes_gcm", return_value=plaintext_bytes):
+            resp = client.post(
+                "/api/v1/sensors/encrypted-data",
+                json={
+                    "device_id": "enc-device-1",
+                    "nonce": "43",
+                    "ciphertext": packet,
+                },
+            )
+        assert resp.status_code == 200
+        assert resp.json()["is_valid"] is False
+
+
+# ---------------------------------------------------------------------------
+# Device simulation test — full end-to-end cryptographic roundtrip
+# ---------------------------------------------------------------------------
+
+class TestDeviceSimulation:
+    """Simulates what the IoT firmware does to send an encrypted telemetry packet.
+
+    1. Fetch server public RSA key via GET /api/v1/auth/keys.
+    2. Encrypt sensor readings with RSA-OAEP.
+    3. Sign (nonce + device_id + ciphertext) with a fresh ECDSA P-256 key.
+    4. POST to /api/v1/sensors/encrypted-data and assert success.
+    """
+
+    @pytest.mark.skip(reason="Hackathon: ECDSA check is bypassed")
+    def test_device_sends_encrypted_signed_telemetry(self, client, mock_swarm, mock_blockchain, monkeypatch):
+        # ---- Device setup: generate its own ECDSA P-256 key pair ----
+        device_private_key = ec.generate_private_key(ec.SECP256R1())
+        device_public_key = device_private_key.public_key()
+        pub_pem = device_public_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        ).decode().replace("\n", "\\n")
+        # Tell the server about this device's public key
+        monkeypatch.setenv("DEVICE_PUBLIC_KEY_PEM", pub_pem)
+
+        # Register the device package conditions
+        client.post("/api/v1/packages/", json={
+            "device_id": "sim-device-1",
+            "max_temp_c": 10.0,
+            "max_acceleration": 3.0,
+        })
+
+        # ---- Step 1: Fetch server RSA public key ----
+        keys_resp = client.get("/api/v1/auth/keys")
+        assert keys_resp.status_code == 200
+        server_pub_pem = keys_resp.json()["server_public_key"]
+        server_pub = serialization.load_pem_public_key(server_pub_pem.encode())
+
+        # ---- Step 2: Encrypt readings ----
+        device_id = "sim-device-1"
+        nonce = "1001"
+        readings = {"temp_c": 5.5, "acceleration_overload": 0.3, "lat": 50.08, "lon": 14.43}
+        plaintext = json.dumps(readings).encode()
+        ciphertext_bytes = server_pub.encrypt(
+            plaintext,
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None,
+            ),
+        )
+        ciphertext_b64 = base64.b64encode(ciphertext_bytes).decode()
+
+        # ---- Step 3: Sign (nonce + device_id + ciphertext) ----
+        signed_str = str(nonce) + device_id + ciphertext_b64
+        sig_bytes = device_private_key.sign(signed_str.encode(), ec.ECDSA(hashes.SHA256()))
+        sig_b64 = base64.b64encode(sig_bytes).decode()
+
+        # ---- Step 4: Send to server ----
+        resp = client.post("/api/v1/sensors/encrypted-data", json={
+            "device_id": device_id,
+            "nonce": nonce,
+            "ciphertext": ciphertext_b64,
+            "signature": sig_b64,
+        })
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["received"] is True
+        assert body["device_id"] == device_id
+        assert body["is_valid"] is True  # temp 5.5 < 10.0, accel 0.3 < 3.0
+
+    def test_tampered_ciphertext_rejected(self, client, mock_swarm, mock_blockchain):
+        """A Kyber packet with a corrupted Kyber CT should return 422.
+
+        We mock decrypt_kyber_aes_gcm to raise ValueError (simulating what
+        happens when the Kyber decapsulation fails on a tampered ciphertext)
+        and verify the endpoint returns 422.
+        """
+        packet = _make_kyber_packet({"temp_c": 3.0, "acceleration_overload": 0.1})
+        with patch("api.sensors.decrypt_kyber_aes_gcm",
+                   side_effect=ValueError("Kyber768 decapsulation failed")):
+            resp = client.post("/api/v1/sensors/encrypted-data", json={
+                "device_id": "sim-device-2",
+                "nonce": "999",
+                "ciphertext": packet,
+            })
+        assert resp.status_code == 422

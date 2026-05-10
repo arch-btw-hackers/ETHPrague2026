@@ -1,0 +1,234 @@
+:root {
+    --amazon-dark: #131921;
+    --amazon-nav: #232f3e;
+    --amazon-orange: #f08804;
+    --amazon-yellow: #ffd814;
+    --amazon-yellow-hover: #f7ca00;
+    --amazon-link: #007185;
+    --amazon-border: #d5d9d9;
+    --amazon-bg: #ffffff;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    font-family: "Amazon Ember", Arial, sans-serif;
+    background-color: var(--amazon-bg);
+    color: #0f1111;
+}
+
+.checkout-header {
+    background-color: var(--amazon-dark);
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+}
+
+.nav-logo-link {
+    display: block;
+    width: 100px;
+    height: 30px;
+    background-image: url(https://m.media-amazon.com/images/G/01/gno/sprites/nav-sprite-global-1x-reorg-privacy._CB779528203_.png);
+    background-position: -10px -51px;
+    margin-top: 10px;
+}
+
+.secure-checkout-title {
+    color: white;
+    font-size: 24px;
+    font-weight: 500;
+    margin: 0;
+    text-align: center;
+    flex: 1;
+}
+
+.nav-cart-icon {
+    width: 38px;
+    height: 26px;
+    background-image: url(https://m.media-amazon.com/images/G/01/gno/sprites/nav-sprite-global-1x-reorg-privacy._CB779528203_.png);
+    background-position: -10px -340px;
+    position: relative;
+}
+
+.checkout-container {
+    max-width: 1000px;
+    margin: 20px auto;
+    padding: 0 20px;
+    display: flex;
+    gap: 30px;
+    align-items: flex-start;
+}
+
+.checkout-left-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.checkout-right-col {
+    width: 300px;
+    position: sticky;
+    top: 20px;
+}
+
+.checkout-card {
+    border: 1px solid var(--amazon-border);
+    border-radius: 8px;
+    padding: 20px;
+    background: white;
+}
+
+.checkout-card h2 {
+    font-size: 18px;
+    margin: 0 0 15px 0;
+    font-weight: 700;
+}
+
+.loading-text {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    color: #565959;
+}
+
+.btn-add-address,
+.btn-pickup {
+    display: inline-block;
+    padding: 8px 15px;
+    border-radius: 8px;
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 500;
+    text-align: center;
+    cursor: pointer;
+    box-shadow: 0 2px 5px rgba(15, 17, 17, .15);
+}
+
+.btn-add-address {
+    background-color: var(--amazon-bg);
+    border: 1px solid var(--amazon-border);
+    color: #0f1111;
+}
+
+.btn-add-address:hover {
+    background-color: #f7f8f8;
+}
+
+.address-actions {
+    display: flex;
+    gap: 15px;
+    margin-top: 15px;
+}
+
+.summary-card {
+    border: 1px solid var(--amazon-border);
+    border-radius: 8px;
+    padding: 20px;
+    background: white;
+}
+
+.btn-primary-action {
+    background-color: var(--amazon-yellow);
+    color: #0f1111;
+    width: 100%;
+    border: 1px solid #fcd200;
+    border-radius: 8px;
+    padding: 10px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    box-shadow: 0 2px 5px rgba(15, 17, 17, .15);
+    margin-bottom: 15px;
+}
+
+.btn-primary-action:hover {
+    background-color: var(--amazon-yellow-hover);
+}
+
+.summary-divider {
+    border: none;
+    border-top: 1px solid var(--amazon-border);
+    margin: 15px 0;
+}
+
+.summary-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 14px;
+    margin-bottom: 8px;
+    color: #0f1111;
+}
+
+.summary-row.total {
+    font-size: 18px;
+    font-weight: 700;
+    color: #b12704;
+    margin-top: 10px;
+}
+
+.checkout-footer {
+    max-width: 1000px;
+    margin: 40px auto;
+    padding: 20px;
+    border-top: 1px solid var(--amazon-border);
+    font-size: 12px;
+    color: #565959;
+}
+
+.checkout-footer p {
+    margin: 0 0 10px 0;
+}
+
+.checkout-footer a {
+    color: var(--amazon-link);
+    text-decoration: none;
+}
+
+.checkout-footer a:hover {
+    color: var(--amazon-link-hover);
+    text-decoration: underline;
+}
+
+.empty-state-text {
+    font-size: 14px;
+    color: #0f1111;
+    margin-bottom: 15px;
+}
+
+.conditions-container {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    margin-top: 10px;
+}
+
+.condition-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    max-width: 350px;
+}
+
+.condition-item label {
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.amazon-number-input {
+    width: 100px;
+    padding: 7px 10px;
+    border: 1px solid #d5d9d9;
+    border-radius: 4px;
+    font-size: 14px;
+    outline: none;
+    box-shadow: 0 1px 2px rgba(15, 17, 17, .15) inset;
+}
+
+.amazon-number-input:focus {
+    border-color: #007185;
+    box-shadow: 0 0 0 3px #c8f3f9;
+}
