@@ -4,6 +4,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+        software-properties-common \
+    && add-apt-repository universe \
+    && apt-get update && apt-get install -y --no-install-recommends \
         python3.12 python3-pip liboqs-dev \
     && rm -rf /var/lib/apt/lists/*
 
