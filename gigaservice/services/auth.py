@@ -243,7 +243,7 @@ def _load_or_generate_kyber_keys() -> None:
         logger.info("Kyber768 keys loaded from environment variables")
         return
 
-    # Try to load from persisted binary file: [32-byte length prefix][SK][PK]
+    # Try to load from persisted binary file: [4-byte SK length][SK][PK]
     for candidate in (_KYBER_KEY_FILE, _KYBER_KEY_FILE_FALLBACK):
         if candidate.exists():
             try:

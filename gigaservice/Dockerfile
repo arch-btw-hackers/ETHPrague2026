@@ -11,13 +11,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
             -DBUILD_SHARED_LIBS=ON \
             -DOQS_MINIMAL_BUILD="KEM_kyber_768" \
             -DCMAKE_BUILD_TYPE=Release \
-    && cmake --build /tmp/liboqs/build --parallel \
+    && cmake --build /tmp/liboqs/build \
     && cmake --install /tmp/liboqs/build \
+    && echo '/usr/local/lib' > /etc/ld.so.conf.d/liboqs.conf \
     && ldconfig \
     && rm -rf /tmp/liboqs \
-    && apt-get remove -y cmake ninja-build git build-essential \
+    && apt-get purge -y cmake ninja-build git build-essential \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
+
+# Make sure the linker can find liboqs at runtime
+ENV LD_LIBRARY_PATH=/usr/local/lib
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
