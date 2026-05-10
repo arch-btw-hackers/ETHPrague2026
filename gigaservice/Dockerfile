@@ -14,15 +14,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
             -DCMAKE_BUILD_TYPE=Release \
     && cmake --build /tmp/liboqs/build \
     && cmake --install /tmp/liboqs/build \
-    && echo '/usr/local/lib' > /etc/ld.so.conf.d/liboqs.conf \
+    && cp /usr/local/lib/liboqs.so* /usr/lib/ \
     && ldconfig \
     && rm -rf /tmp/liboqs \
     && apt-get purge -y cmake ninja-build git build-essential \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
-# Make sure the linker can find liboqs at runtime
-ENV LD_LIBRARY_PATH=/usr/local/lib
+# Ensure ldconfig finds liboqs at runtime
+ENV LD_LIBRARY_PATH=/usr/lib
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
